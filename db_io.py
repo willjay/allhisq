@@ -1,13 +1,34 @@
 import sqlalchemy as sqla
+import pandas as pd
 
-def build_upsert_query(engine, table_name, src_dict, DO_UPDATE=False):
+def fetch_id(engine, query, verbose=False):
+    """ 
+    Fetch id from database given a query with error handling.
+    Args:
+        engine: database connection "engine"
+        query: str, containing a "raw" SQL query which will return a single id.
+        verbose: bool whether to print diagnostic messages
+    Returns:
+        int, containing the id or None if not found
+    """
+    if verbose:
+        print(query)
+    tmp_df = pd.read_sql_query(query, engine)        
+    if len(tmp_df) == 1:
+        return tmp_df['id'].item()
+    elif len(tmp_df) == 0:
+        return None
+    else:
+        raise ValueError("Non-unique id encountered.")
+
+def build_upsert_query(engine, table_name, src_dict, do_update=False):
     """
     Builds a raw SQL query for "upserting" data into the database.
     Args:
         engine: database connection "engine"
         table_name: str, name of the database table for the upsert
         srs_dict: dict, containing the column information for the upsert
-        DO_UPDATE: bool, whether or not to update the row when a conflict is
+        do_update: bool, whether or not to update the row when a conflict is
             encountered. Default is False.
     Returns:
         query: str, containing the raw SQL query.
@@ -153,7 +174,7 @@ def build_upsert_query(engine, table_name, src_dict, DO_UPDATE=False):
             unique_cols = ", ".join([str(col) for col in list(unique_cols)])
         else:
             unique_cols = ', '.join(unique_cols)
-        if DO_UPDATE:
+        if do_update:
             set_clause = "ON CONFLICT ({unique_cols}) DO UPDATE SET\n".\
                 format(unique_cols=unique_cols)
             set_clause +=  _get_set_pairs(uprow, types)
@@ -177,7 +198,7 @@ def build_upsert_query(engine, table_name, src_dict, DO_UPDATE=False):
                     c = str(c).split('.')[-1]
                 tmp.append(c)
             primary_key = ", ".join(tmp)
-        if DO_UPDATE:
+        if do_update:
             set_clause = "ON CONFLICT ({primary_key}) DO UPDATE SET\n".\
                 format(primary_key=primary_key)
             set_clause += _get_set_pairs(uprow, types)
