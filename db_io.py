@@ -1,7 +1,67 @@
 import sqlalchemy as sqla
 import pandas as pd
+import warnings
 
-def fetch_id(engine, query, verbose=False):
+def upsert(engine, table_name, df):
+    """
+    Upsert the content of a DataFrame into a db table
+    
+    Credit: User Ryan Tuck
+    https://stackoverflow.com/questions/41724658/how-to-do-a-proper-upsert-using-sqlalchemy-on-postgresql
+    
+    TODO: implement insert_ignore.
+    Assume that insert_ignore() is a function defined elsewhere ignores instead of updating conflicting rows.
+    """
+    # Reflect table from db
+    metadata = sqla.MetaData(bind=engine)
+    table    = sqla.Table(table_name, metadata, autoload=True, autoload_with=engine)
+
+    # Unpackage DataFrame
+    records = []
+    for _, row in df.iterrows():
+        # Edge case: serial primary keys, e.g., may not be in the row yet
+        records.append({col.name : row[col.name] for col in table.columns if col.name in row})
+        
+    # get list of fields making up primary key
+    primary_keys = [key.name for key in sqla.inspection.inspect(table).primary_key]
+    assert len(primary_keys) == 1
+    pkey = primary_keys[0]
+    
+    # assemble base statement
+    stmt = sqla.dialects.postgresql.insert(table).values(records)
+    
+    # Isolate non-primary keys for updating
+    update_dict = { col.name: col for col in stmt.excluded if not col.primary_key}
+
+    # Edge case: all columns make up a primary key
+    # Then upsert <--> 'on conflict do nothing'    
+    if update_dict == {}:
+        msg = 'No updateable columns found for table {0}. Skipping upsert.'.format(table_name)
+        warnings.warn(msg)
+        # Still want to upsert without error.
+        # TODO: implement insert_ignore()
+        # insert_ignore(table_name, records)         
+        return None
+
+    # Assemble statement with 'on conflict do update' clause
+    update_stmt = stmt.on_conflict_do_update(
+                    index_elements=primary_keys,
+                    set_=update_dict,
+                  )
+    # execute
+    with engine.connect() as conn:
+        result = conn.execute(update_stmt)
+        return result
+
+def write(engine, table_name, src, return_id=True, do_update=False, verbose=False):
+    query = build_upsert_query(engine, table_name, src, do_update=do_update)
+    if verbose:
+        print(query)
+    engine.execute(query)
+    if return_id:
+        return fetch_id(engine, table_name, src)
+
+def fetch_id(engine, table_name, src, verbose=False):
     """ 
     Fetch id from database given a query with error handling.
     Args:
@@ -11,16 +71,59 @@ def fetch_id(engine, query, verbose=False):
     Returns:
         int, containing the id or None if not found
     """
+    
+    # Helper functions
+    def get_unique_columns(table):
+        for constraint in table.constraints:
+            if isinstance(constraint, sqla.UniqueConstraint):
+                return constraint.columns
+            else:
+                pass
+        # We should never get this far. All tables in my db 
+        # should have unique constraints
+        assert False        
+        
+    def get_id_name(table):
+        primary_key_columns = table.primary_key.columns.items()
+        if len(primary_key_columns) == 1:
+            name, col = primary_key_columns[0]
+            return name
+        # We should never get this far. All tables in my db
+        # should have a single primary key column
+        assert false
+                
+    # Reflect table from db
+    meta  = sqla.MetaData()
+    table = sqla.Table(table_name, meta, autoload=True, autoload_with=engine)
+        
+    unique_cols = get_unique_columns(table)
+    id_name     = get_id_name(table)
+        
+    # Build the SQL query by hand
+    query  = """SELECT {0} from {1} WHERE """.format(id_name, table_name)
+    constraints = []
+    for col in unique_cols:
+        val = src[col.name]
+        if 'TEXT' in str(col.type):
+            template = "({col}='{val}')"
+        else: 
+            template = "({col}={val})"
+        constraints.append(template.format(col=col, val=val))
+    constraints = ' AND '.join(constraints)+ ';'
+    query = query + constraints 
+    
+    # Fetch the id
     if verbose:
         print(query)
-    tmp_df = pd.read_sql_query(query, engine)        
-    if len(tmp_df) == 1:
-        return tmp_df['id'].item()
+    df = pd.read_sql_query(query, engine)        
+    if len(df) == 1:
+        return df[id_name].item()
     elif len(tmp_df) == 0:
         return None
     else:
         raise ValueError("Non-unique id encountered.")
-
+        
+        
 def build_upsert_query(engine, table_name, src_dict, do_update=False):
     """
     Builds a raw SQL query for "upserting" data into the database.
