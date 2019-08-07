@@ -1,6 +1,68 @@
 import sqlalchemy as sqla
 import pandas as pd
 import warnings
+import gvar as gv
+import numpy as np
+import ast
+
+def to_text(d):
+    """ Wrapper for converting dicts to text for postgres"""
+    d_new = {}
+    for k, v in sorted(d.iteritems()):
+        d_new[k] = str(v)    
+    return '$delim${{{0}}}$delim$'.format(str(d_new)) 
+
+def parse_string_dict(s):
+    """
+    Parse a string representation of a dictionary, e.g.,
+    "{{'key1': 'val1', 'key2': 'val2', ...}}"    
+    """
+    d = ast.literal_eval(s[1:-1])
+    d = {key : parse_string(val) for key, val in d.iteritems()}
+    return d
+        
+def parse_string(s):
+    """
+    Parse a string representation of an array of gvars into
+    an array of gvars. This operation arises frequently, for
+    example, when reading from the various "glance*" tables, 
+    which store preprocessed data.
+    """
+    def to_arr(s):
+        # Switch to list
+        row = s.replace(']','').\
+               replace('[','').\
+               replace('{','').\
+               replace('}','').\
+               replace('\n','').split()
+        
+        if '+-' in row:
+            row = kludge_gvars(row)
+        row = [gv.gvar(str(elt)) for elt in row]
+        return np.array(row)
+    
+    def kludge_gvars(mangled):
+        """
+        Occasionally, gvars get rendered to strings as, e.g.,
+        -4e-06 +- 1 instead of -0.000006(1.0). This makes a 
+        complete mess of trying to parse the a list of gvar
+        which has been turned into a string, e.g.,
+        '[1(2) 1 +- 2 0.003(2)]', since the usual str.split()
+        separates '1 +- 2' --> ['1','+-','2']. This function is
+        a kludge which works around this difficulty.
+        """
+        # Loop in reverse looking for '+-', but don't run off the end
+        for idx in range(len(mangled)-1)[::-1]:
+            if mangled[idx+1] == '+-':
+                reunited = ' '.join(mangled[idx:idx+3])
+                # Throw away the used elements...
+                for _ in range(3):            
+                    mangled.pop(idx)
+                # Repair the list with reunited gvar string
+                mangled.insert(idx,reunited)
+        return mangled
+        
+    return to_arr(s)
 
 def upsert(engine, table_name, df):
     """
@@ -118,7 +180,7 @@ def fetch_id(engine, table_name, src, verbose=False):
     df = pd.read_sql_query(query, engine)        
     if len(df) == 1:
         return df[id_name].item()
-    elif len(tmp_df) == 0:
+    elif len(df) == 0:
         return None
     else:
         raise ValueError("Non-unique id encountered.")

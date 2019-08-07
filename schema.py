@@ -39,7 +39,7 @@ def main():
     correlator_analysis = """
     CREATE TABLE IF NOT EXISTS correlator_analysis
     (
-      analysis_id   SERIAL PRIMARY KEY,
+      corr_analysis_id SERIAL PRIMARY KEY,
       ens_id        integer REFERENCES ensemble (ens_id),
       analysis_name text,
       UNIQUE(ens_id, analysis_name)
@@ -53,7 +53,7 @@ def main():
     (
       corr_analysis_id SERIAL PRIMARY KEY,
       corr_id          integer REFERENCES correlator_n_point (corr_id),
-      analysis_id      integer REFERENCES correlator_analysis (analysis_id),
+      analysis_id      integer REFERENCES correlator_analysis (corr_analysis_id),
       UNIQUE(corr_id, analysis_id)
     );"""
     
@@ -66,41 +66,44 @@ def main():
       reduction_id   SERIAL PRIMARY KEY,
       ens_id integer REFERENCES ensemble (ens_id),
       fold           boolean NOT NULL, 
-      block_length   integer NOT NULL,
+      binsize        integer NOT NULL,
       nsamples       integer NOT NULL,
       n_time_sources integer NOT NULL,
+      shrinkage      text DEFAULT 'None',
       log            text DEFAULT '',
-      UNIQUE(fold, block_length, nsamples, n_time_sources)
+      UNIQUE(fold, binsize, nsamples, n_time_sources, shrinkage)
     );"""
 
-    rangefit_two_point = """
-    CREATE TABLE IF NOT EXISTS rangefit_two_point
+    analysis_two_point = """
+    CREATE TABLE IF NOT EXISTS analysis_two_point
     (
-      rangefit_id SERIAL PRIMARY KEY,
+      analysis_id SERIAL PRIMARY KEY,
       tmin        integer,         -- Inclusive
       tmax        integer,         -- Exclusive
+      n           integer,         -- Number of decaying states
+      no          integer,         -- Number of oscillating states
       prior_alias text DEFAULT '', -- Some quick nickname
-      prior       text DEFAULT '', -- The prior itself
-      UNIQUE(tmin, tmax, prior_alias)
+      UNIQUE(tmin, tmax, n, no, prior_alias)
     );"""
     
     result_two_point = """
     CREATE TABLE IF NOT EXISTS result_two_point
     ( 
-      result_id    SERIAL PRIMARY KEY,
-      ens_id       integer REFERENCES ensemble (ens_id),
-      reduction_id integer REFERENCES reduction_two_point (reduction_id),
-      analysis_id  integer REFERENCES correlator_analysis (analysis_id),
-      rangefit_id  integer REFERENCES rangefit_two_point (rangefit_id),
+      result_id        SERIAL PRIMARY KEY,
+      ens_id           integer REFERENCES ensemble (ens_id),
+      reduction_id     integer REFERENCES reduction_two_point (reduction_id),
+      analysis_id      integer REFERENCES analysis_two_point (analysis_id),
+      corr_analysis_id integer REFERENCES correlator_analysis (corr_analysis_id),
       chi2    float,
       dof     integer,
       npoints integer,
       q       float,
       params  text,
+      prior   text,
       quality_factor float,
       log     text DEFAULT '',
       calcdate timestamp with time zone,
-      UNIQUE(ens_id, reduction_id, analysis_id, rangefit_id)
+      UNIQUE(ens_id, reduction_id, analysis_id, corr_analysis_id)
     );"""
 
     campaign_two_point = """
@@ -109,17 +112,31 @@ def main():
       campaign_id SERIAL PRIMARY KEY, 
       result_id   integer REFERENCES result_two_point (result_id),
       ens_id      integer REFERENCES ensemble (ens_id), 
-      analysis_id integer REFERENCES correlator_analysis (analysis_id),
-      UNIQUE(ens_id, analysis_id)
+      corr_analysis_id integer REFERENCES correlator_analysis (corr_analysis_id),
+      UNIQUE(ens_id, corr_analysis_id)
     );"""
 
     systematic_two_point = """
     CREATE TABLE IF NOT EXISTS systematic_two_point
     (
       id SERIAL PRIMARY KEY,
-      analysis_id integer REFERENCES correlator_analysis (analysis_id),
+      corr_analysis_id integer REFERENCES correlator_analysis (corr_analysis_id),
       systematic text NOT NULL,
-      UNIQUE(analysis_id)
+      UNIQUE(corr_analysis_id)
+    );"""
+
+    reduction_form_factor = """
+    CREATE TABLE IF NOT EXISTS reduction_form_factor
+    (
+      reduction_id   SERIAL PRIMARY KEY,
+      ens_id integer REFERENCES ensemble (ens_id),
+      fold           boolean NOT NULL, 
+      binsize        integer NOT NULL,
+      nsamples       integer NOT NULL,
+      n_time_sources integer NOT NULL,
+      shrinkage      text DEFAULT 'None',
+      log            text DEFAULT '',
+      UNIQUE(fold, binsize, nsamples, n_time_sources, shrinkage)
     );"""
 
     analysis_form_factor = """
@@ -138,12 +155,14 @@ def main():
       tmin_hl integer NOT NULL,
       tmax_ll integer NOT NULL,
       tmax_hl integer NOT NULL,
+      prior_alias text NOT NULL,
       UNIQUE(
         ens_id, form_factor_id,
         n_decay_ll, n_decay_hl,              
         n_oscillating_ll, n_oscillating_hl,
         tmin_ll, tmin_hl, 
-        tmax_ll, tmax_hl)
+        tmax_ll, tmax_hl,
+        prior_alias)
     );"""
         
     form_factor = """
@@ -155,12 +174,13 @@ def main():
       spin_taste_current   text NOT NULL,
       spin_taste_sink      text NOT NULL,
       spin_taste_source    text NOT NULL,
-      spectator_quark_mass float NOT NULL,
-      antiquark_mass       float NOT NULL,
-      heavy_mass           float NOT NULL,
+      m_spectator          float NOT NULL,
+      m_heavy              float NOT NULL,
+      m_light              float NOT NULL,
+      m_sink_to_current    float NOT NULL,
       UNIQUE(ens_id, momentum,
              spin_taste_current, spin_taste_sink, spin_taste_source,
-             spectator_quark_mass, antiquark_mass, heavy_mass)
+             m_spectator, m_heavy, m_light, m_sink_to_current)
     );
     """
    
@@ -171,7 +191,7 @@ def main():
       form_factor_id integer REFERENCES form_factor(form_factor_id),
       corr_id integer REFERENCES correlator_n_point(corr_id),
       corr_type text NOT NULL,
-      UNIQUE(form_factor_id, corr_id)
+      UNIQUE(form_factor_id, corr_id, corr_type)
     );
     """
     
@@ -179,19 +199,22 @@ def main():
     CREATE TABLE IF NOT EXISTS result_form_factor
     (
       id SERIAL PRIMARY KEY,
-      ens_id      integer REFERENCES ensemble (ens_id),
-      analysis_id integer REFERENCES analysis_form_factor (analysis_id),
+      ens_id         integer REFERENCES ensemble (ens_id),
+      analysis_id    integer REFERENCES analysis_form_factor (analysis_id),
+      form_factor_id integer REFERENCES form_factor (form_factor_id),
+      reduction_id   integer REFERENCES reduction_form_factor (reduction_id),
       prior  text,
       params text,
       nparams  integer,
-      ndata    integer,
+      npoints  integer,
       chi2     float,
-      chi2_aug float,
-      p_value  float,
-      Q        float,
-      svdcut   float,
+      q        float,
+      log      text,
+      r        text,
+      r_guess  text,
+      normalization text,
       calcdate timestamp with time zone,
-      UNIQUE(ens_id, analysis_id)
+      UNIQUE(ens_id, analysis_id, form_factor_id, reduction_id)
     );"""
     
     external_database = """
@@ -208,17 +231,18 @@ def main():
     analysis_queue = """
     CREATE TABLE IF NOT EXISTS analysis_queue
     (
-      analysis_id integer PRIMARY KEY REFERENCES correlator_analysis (analysis_id),
+      corr_analysis_id integer PRIMARY KEY REFERENCES correlator_analysis (corr_analysis_id),
       status text,
-      UNIQUE(analysis_id)
+      UNIQUE(corr_analysis_id)
     );"""
     
     queue_form_factor = """
     CREATE TABLE IF NOT EXISTS queue_form_factor
     (
-      analysis_id integer PRIMARY KEY REFERENCES analysis_form_factor,
+      queue_id SERIAL PRIMARY KEY,
+      form_factor_id integer REFERENCES form_factor (form_factor_id),
       status text,
-      UNIQUE(analysis_id)
+      UNIQUE(form_factor_id)
     );
     """
     
@@ -287,10 +311,7 @@ def main():
         ds_id SERIAL PRIMARY KEY,
         -- unique columns --
         ens_id               integer REFERENCES ensemble(ens_id),
-        p                    text  NOT NULL, -- e.g., 'p000'
-        spectator_quark_mass float NOT NULL, 
-        antiquark_mass       float NOT NULL,
-        heavy_mass           float NOT NULL,
+        form_factor_id       integer REFERENCES form_factor(form_factor_id),
         -- data columns -- 
         T13 text,
         T14 text,
@@ -298,7 +319,7 @@ def main():
         T16 text,
         hl  text,
         ll  text,
-        UNIQUE(ens_id, p, spectator_quark_mass, antiquark_mass, heavy_mass)
+        UNIQUE(ens_id, form_factor_id)
     );"""
     
     glance_correlator_n_point = """
@@ -306,7 +327,11 @@ def main():
     (
         corr_id integer REFERENCES correlator_n_point(corr_id),
         data text,
-        UNIQUE(corr_id)
+        nconfigs         int  NOT NULL, -- the total number of configurations used
+        fine_only        bool NOT NULL, -- whether or not this data just used the fine solves
+        tsrc_combination text NOT NULL, -- e.g., "tsm", if applicable
+        nfine_per_config int  NOT NULL, -- the number of fine solves per configuration
+        UNIQUE(corr_id, nconfigs, fine_only)
     );"""
         
     pgd_mesons = """
@@ -321,7 +346,7 @@ def main():
         g text,  -- g-parity (+/-)
         j float, -- spin
         p text,  -- parity (+/-)
-        c text,  -- charge conjugation (+/-_
+        c text,  -- charge conjugation (+/-)
         UNIQUE(name, mass_MeV)
     );
     """
@@ -370,6 +395,280 @@ def main():
         UNIQUE(corr_id)
     );
     """
+    
+    three_point = """
+    CREATE VIEW three_point AS (
+        SELECT
+            corr.ens_id,
+            corr.corr_id,
+            corr.name,
+            -- Currents -- 
+            split_part(meta.correlator, '_'::text, 1) AS spin_taste_sink,
+            split_part(meta.correlator, '_'::text, 2) AS spin_taste_current,
+            -- Masses --
+            GREATEST(meta.quark_mass, meta_seq.mass) AS m_heavy,
+            LEAST(meta.quark_mass, meta_seq.mass)    AS m_light,
+            meta.antiquark_mass                      AS m_spectator,
+            meta_seq.mass                            AS m_sink_to_current,
+            meta.quark_mass                          AS m_source_to_current,
+            -- Momentum -- 
+            split_part(meta.momentum, '-'::text, 1) AS momentum,
+            -- Sink time T --
+            CAST(TRIM(LEADING 'T' FROM split_part(corr.name, '_'::text, 3)) AS integer) AS t_sink,
+            -- Checking the sink time T from the meta data -- 
+            CAST(TRIM(LEADING 'T' FROM split_part(corr.name, '_'::text, 3)) AS integer) = meta_seq.t0 - meta.quark_source_origin[4] AS t_sink_verify
+        FROM correlator_n_point AS corr
+        JOIN meta_data_correlator AS meta ON meta.correlator_key = corr.name AND meta.ens_id = corr.ens_id
+        JOIN meta_data_sequential AS meta_seq ON meta_seq.meta_correlator_id = meta.meta_correlator_id
+        WHERE meta.has_sequential = true
+    );"""
+    
+    two_point = """
+    CREATE VIEW two_point AS (
+        SELECT
+            corr.ens_id,
+            corr.corr_id,
+            corr.name,
+            GREATEST(meta.quark_mass, meta.antiquark_mass) AS m_heavy,
+            LEAST(meta.quark_mass, meta.antiquark_mass) AS m_light,
+            split_part(meta.momentum, '-'::text, 1) AS momentum
+        FROM correlator_n_point corr
+        JOIN meta_data_correlator meta ON (corr.name = meta.correlator_key) AND (corr.ens_id = meta.ens_id)
+        WHERE meta.has_sequential = false
+    );"""
+     
+    two_point_state_content = """
+    CREATE TABLE IF NOT EXISTS two_point_state_content
+    (
+        corr_id integer PRIMARY KEY REFERENCES correlator_n_point(corr_id),
+        n   integer,
+        no  integer,
+        log text,
+        UNIQUE(corr_id)
+    );"""
+    
+    alias_quark_mass = """
+    CREATE TABLE IF NOT EXISTS alias_quark_mass
+    (
+        alias_mq_id SERIAL PRIMARY KEY,
+        ens_id integer REFERENCES ensemble(ens_id),
+        mq float NOT NULL,   -- the bare quark mass
+        alias text NOT NULL, -- the alias, e.g., '0.1 mc'
+        style text NOT NULL default 'default',
+        UNIQUE(ens_id, mq, style)
+    );"""
+        
+    alias_form_factor = """
+    CREATE VIEW alias_form_factor AS (  
+        SELECT 
+            ff.form_factor_id, 
+            alias_l.alias as alias_light,
+            alias_h.alias as alias_heavy,
+            alias_s.alias as alias_spectator
+        FROM form_factor as ff
+        -- alias for light quark
+        JOIN alias_quark_mass AS alias_l 
+        ON (alias_l.ens_id = ff.ens_id) AND (alias_l.mq = ff.m_light)
+        -- alias for heavy quark
+        JOIN alias_quark_mass AS alias_h
+        ON (alias_h.ens_id = ff.ens_id) AND (alias_h.mq = ff.m_heavy)
+        -- alias for spectator quark
+        JOIN alias_quark_mass AS alias_s
+        ON (alias_s.ens_id = ff.ens_id) AND (alias_s.mq = ff.m_spectator)
+    );"""
+        
+    campaign_form_factor = """
+    CREATE TABLE IF NOT EXISTS campaign_form_factor
+    (
+        campaign_ff_id SERIAL PRIMARY KEY,
+        form_factor_id integer REFERENCES form_factor(form_factor_id),
+        result_id      integer REFERENCES result_form_factor(id),
+        criterion      text DEFAULT '',
+        automated      boolean NOT NULL,
+        UNIQUE(form_factor_id)
+    );
+    """
+     
+    missing_campaign_form_factor = """
+    CREATE VIEW missing_campaign_form_factor AS
+    -- Isolate form factors NOT appearing in the campaign table
+    (
+        SELECT * 
+        FROM form_factor
+        WHERE NOT EXISTS (
+            SELECT -- intentionally empty
+            FROM campaign_form_factor
+            WHERE form_factor.form_factor_id = campaign_form_factor.form_factor_id
+        )
+    );
+    """
+        
+    missing_result_form_factor = """
+    CREATE VIEW missing_result_form_factor AS
+    -- Isolate form factors with missing results
+    (
+        SELECT * 
+        FROM form_factor
+        WHERE NOT EXISTS (
+            SELECT -- intentionally empty
+            FROM result_form_factor
+            WHERE form_factor.form_factor_id = result_form_factor.form_factor_id 
+        )
+    );
+    """
+        
+    summary_form_factor = """
+    CREATE VIEW summary_form_factor AS
+    (
+        SELECT 
+            result.ens_id,
+            campaign.*,
+            result.r,
+            result.normalization,
+            result.q,
+            form_factor.momentum,
+            form_factor.m_light,
+            form_factor.m_heavy,
+            form_factor.m_spectator,
+            form_factor.spin_taste_current,
+            alias.alias_light,
+            alias.alias_heavy,
+            alias.alias_spectator
+        FROM campaign_form_factor AS campaign
+        JOIN result_form_factor AS result
+        ON campaign.result_id = result.id
+        JOIN form_factor 
+        ON campaign.form_factor_id = form_factor.form_factor_id
+        JOIN alias_form_factor AS alias
+        ON campaign.form_factor_id = alias.form_factor_id
+    );
+    """
+    
+    tough_form_factor = """
+    CREATE TABLE IF NOT EXISTS tough_form_factor
+    (
+        tough_id SERIAL PRIMARY KEY,
+        form_factor_id integer REFERENCES form_factor(form_factor_id),
+        log text default '',
+        UNIQUE(form_factor_id)
+    );"""
+    
+    tough_two_point = """
+    CREATE TABLE IF NOT EXISTS tough_two_point 
+    (
+        tough_id SERIAL PRIMARY KEY,
+        corr_analysis_id integer REFERENCES correlator_analysis(corr_analysis_id),
+        log text default '',
+        UNIQUE(corr_analysis_id)
+    );"""
+    
+    strong_coupling = """
+    CREATE TABLE IF NOT EXISTS strong_coupling
+    (
+        coupling_id SERIAL PRIMARY KEY,
+        coupling_name  text NOT NULL,    -- e.g., 'alphaV'
+        coupling_scale text NOT NULL,    -- e.g., '2/a'
+        coupling_value text NOT NULL,    -- e.g., '0.3478(81)'
+        lattice_spacing_id int REFERENCES lattice_spacing(id),
+        log            text default '',  -- e.g., 'Zech private communication'
+        UNIQUE(lattice_spacing_id, coupling_name, coupling_scale)
+    );"""
+            
+    missing_result_two_point = """
+    CREATE VIEW missing_result_two_point AS
+    -- Isolate missing two-point results
+    (
+    SELECT
+        missing.corr_analysis_id,
+        missing.analysis_name,
+        missing.ens_id,
+        two_point.m_light,
+        two_point.m_heavy,
+        two_point.momentum
+    FROM two_point 
+    JOIN (
+        SELECT * FROM correlator_analysis
+        WHERE NOT EXISTS (
+            SELECT FROM result_two_point
+            WHERE result_two_point.corr_analysis_id = correlator_analysis.corr_analysis_id
+            )
+    ) AS missing
+    ON (missing.analysis_name = RTRIM(two_point.name, 'fine-_')) AND (missing.ens_id = two_point.ens_id)
+    WHERE two_point.name like '%%fine'
+    );"""
+       
+    summary_status = """
+    CREATE VIEW summary_status AS
+    -- Summary of the status of form factor fits 
+    (            
+    SELECT 
+        present.ens_id,
+        present.present,
+        COALESCE(results.results,0)    AS results,
+        COALESCE(missing.missing,0)    AS missing,
+        present.present - (COALESCE(results.results,0) + COALESCE(missing.missing,0))
+                                       AS unaccounted,
+        COALESCE(pending.pending, 0)   AS status_pending,
+        COALESCE(complete.complete, 0) AS status_complete,
+        COALESCE(error.error, 0)       AS status_error,
+        COALESCE(failed.failed, 0)     AS status_failed,
+        COALESCE(pending.pending, 0) + COALESCE(complete.complete, 0) +
+            COALESCE(error.error, 0) + COALESCE(failed.failed, 0)
+                                       AS status_total,
+        present.present - (
+            COALESCE(pending.pending, 0) + COALESCE(complete.complete, 0) +
+            COALESCE(error.error, 0) + COALESCE(failed.failed, 0)) 
+                                       AS not_in_queue
+    FROM (
+        SELECT ens_id, count(distinct(form_factor_id)) AS present
+        FROM form_factor
+        GROUP BY(ens_id)
+        ) AS present
+    LEFT OUTER JOIN (
+         SELECT ens_id, count(distinct(form_factor_id)) AS results
+         FROM result_form_factor
+         GROUP BY(ens_id)
+         ) AS results
+    ON (present.ens_id = results.ens_id)
+    LEFT OUTER JOIN (
+        SELECT ens_id, count(distinct(form_factor_id)) AS missing
+        FROM missing_result_form_factor
+        GROUP BY(ens_id)
+        ) AS missing
+    ON (present.ens_id = missing.ens_id)
+    LEFT OUTER JOIN (
+        SELECT ens_id, count(queue.form_factor_id) AS pending
+        FROM queue_form_factor as queue
+        JOIN form_factor AS ff ON (ff.form_factor_id = queue.form_factor_id)
+        WHERE status = 'pending'
+        GROUP BY(ens_id)
+        ) AS pending
+    ON pending.ens_id = present.ens_id
+    LEFT OUTER JOIN (
+        SELECT ens_id, count(queue.form_factor_id) AS complete
+        FROM queue_form_factor AS queue
+        JOIN form_factor AS ff ON (ff.form_factor_id = queue.form_factor_id)
+        WHERE status = 'complete'
+        GROUP BY(ens_id)
+        ) AS complete
+    on complete.ens_id = present.ens_id
+    LEFT OUTER JOIN (
+        SELECT ens_id, count(queue.form_factor_id) as error
+        FROM queue_form_factor as queue
+        JOIN form_factor AS ff ON (ff.form_factor_id = queue.form_factor_id)
+        WHERE status = 'error'
+        GROUP BY(ens_id)
+        ) AS error
+    on error.ens_id = present.ens_id
+    LEFT OUTER JOIN (
+        SELECT ens_id, count(queue.form_factor_id) as failed
+        FROM queue_form_factor as queue
+        JOIN form_factor AS ff ON (ff.form_factor_id = queue.form_factor_id)
+        WHERE status = 'failed'
+        GROUP BY(ens_id)
+        ) as failed
+    ON failed.ens_id = present.ens_id
+    );"""
         
     engine = db.make_engine()
 
@@ -379,7 +678,7 @@ def main():
 #         correlator_analysis,
 #         junction_n_point_analysis,
 #         reduction_two_point,
-#         rangefit_two_point,
+#         analysis_two_point,
 #         result_two_point,
 #         campaign_two_point,
 #         systematic_two_point,
@@ -387,12 +686,28 @@ def main():
 #         analysis_queue,
 #         meta_data_correlator,
 #         meta_data_sequential,
-#         analysis_form_factor,
-#         result_form_factor,
-#         queue_form_factor,
 #         glance_dataset_form_factor
 #         form_factor,
-#         glance_correlator_n_point
+#         junction_form_factor,
+#         analysis_form_factor,        
+#         reduction_form_factor,        
+#         result_form_factor,        
+#        queue_form_factor,
+#         glance_correlator_n_point,
+#         three_point,
+#         two_point,
+#         two_point_state_content        
+#         alias_quark_mass,
+#         alias_form_factor,
+#         campaign_form_factor
+#         missing_campaign_form_factor,
+#         missing_result_form_factor,
+#        summary_form_factor,
+#        tough_form_factor,
+#        tough_two_point
+#         strong_coupling,
+#        missing_result_two_point,
+        summary_status,
     ]
     for query in queries:
         print(query)
