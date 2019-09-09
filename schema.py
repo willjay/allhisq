@@ -109,13 +109,14 @@ def main():
     campaign_two_point = """
     CREATE TABLE IF NOT EXISTS campaign_two_point
     (
-      campaign_id SERIAL PRIMARY KEY, 
-      result_id   integer REFERENCES result_two_point (result_id),
-      ens_id      integer REFERENCES ensemble (ens_id), 
+      campaign_two_point_id SERIAL PRIMARY KEY, 
       corr_analysis_id integer REFERENCES correlator_analysis (corr_analysis_id),
-      UNIQUE(ens_id, corr_analysis_id)
+      result_id   integer REFERENCES result_two_point (result_id),
+      criterion   text DEFAULT '', 
+      automated   boolean NOT NULL,
+      UNIQUE(corr_analysis_id)
     );"""
-
+    
     systematic_two_point = """
     CREATE TABLE IF NOT EXISTS systematic_two_point
     (
@@ -476,6 +477,21 @@ def main():
         JOIN alias_quark_mass AS alias_s
         ON (alias_s.ens_id = ff.ens_id) AND (alias_s.mq = ff.m_spectator)
     );"""
+           
+    alias_two_point = """
+    CREATE VIEW alias_two_point AS (    
+        SELECT
+            two_point.corr_id,
+            alias_l.alias AS alias_light,
+            alias_h.alias AS alias_heavy
+        FROM two_point
+        -- alias for light quark
+        JOIN alias_quark_mass alias_l
+        ON (alias_l.ens_id = two_point.ens_id) AND (alias_l.mq = two_point.m_light)
+        -- alias for heavy quark
+        JOIN alias_quark_mass alias_h
+        ON (alias_h.ens_id = two_point.ens_id) AND (alias_h.mq = two_point.m_heavy)
+    );"""
         
     campaign_form_factor = """
     CREATE TABLE IF NOT EXISTS campaign_form_factor
@@ -488,7 +504,21 @@ def main():
         UNIQUE(form_factor_id)
     );
     """
-     
+
+    missing_campaign_two_point = """
+    CREATE VIEW missing_campaign_two_point AS
+    -- Isolate two-points NOT appearing in the campaign table
+    (
+        SELECT * 
+        FROM correlator_analysis
+        WHERE NOT EXISTS (
+            SELECT -- intentionally empty
+            FROM campaign_two_point
+            WHERE correlator_analysis.corr_analysis_id = campaign_two_point.corr_analysis_id
+        )
+    );
+    """
+    
     missing_campaign_form_factor = """
     CREATE VIEW missing_campaign_form_factor AS
     -- Isolate form factors NOT appearing in the campaign table
@@ -516,7 +546,35 @@ def main():
         )
     );
     """
-        
+
+    # Note: the materialized view is convenient since the query is 
+    # somewhat slow (~60 seconds). The basic problem is the somewhat
+    # clumsy handling of the correlator identification in the table
+    # two_point, which requires some string parsing to join with correlator_analysis
+    summary_two_point = """
+    CREATE MATERIALIZED VIEW summary_two_point AS
+    (
+        SELECT 
+            result.ens_id,
+            campaign.*,
+            result.params,
+            two_point.momentum,
+            two_point.m_light,
+            two_point.m_heavy,
+            alias.alias_light,
+            alias.alias_heavy
+        FROM campaign_two_point AS campaign
+        JOIN result_two_point AS result
+        ON campaign.result_id = result.result_id
+        JOIN correlator_analysis
+        ON correlator_analysis.corr_analysis_id = campaign.corr_analysis_id
+        JOIN two_point
+        ON (RTRIM(two_point.name,'fine-_') = correlator_analysis.analysis_name)
+            AND (two_point.ens_id = correlator_analysis.ens_id)
+        JOIN alias_two_point AS alias
+        ON alias.corr_id = two_point.corr_id    
+    );"""
+    
     summary_form_factor = """
     CREATE VIEW summary_form_factor AS
     (
@@ -597,13 +655,15 @@ def main():
     WHERE two_point.name like '%%fine'
     );"""
        
-    summary_status = """
-    CREATE VIEW summary_status AS
+    summary_status_form_factor = """
+    CREATE VIEW summary_status_form_factor AS
     -- Summary of the status of form factor fits 
     (            
     SELECT 
         present.ens_id,
         present.present,
+        COALESCE(campaign.campaign, 0) AS campaign,
+        COALESCE(missing_campaign.missing_campaign, 0) AS missing_campaign,    
         COALESCE(results.results,0)    AS results,
         COALESCE(missing.missing,0)    AS missing,
         present.present - (COALESCE(results.results,0) + COALESCE(missing.missing,0))
@@ -624,6 +684,18 @@ def main():
         FROM form_factor
         GROUP BY(ens_id)
         ) AS present
+    LEFT OUTER JOIN (
+        SELECT ens_id, count(distinct(camp.form_factor_id)) AS campaign FROM campaign_form_factor AS camp
+        JOIN form_factor AS ff 
+        ON camp.form_factor_id = ff.form_factor_id
+        GROUP BY(ens_id)
+        ) AS campaign    
+    ON campaign.ens_id = present.ens_id
+    LEFT OUTER JOIN (
+        SELECT ens_id, count(DISTINCT(form_factor_id)) AS missing_campaign FROM missing_campaign_form_factor
+        GROUP BY(ens_id)
+        ) AS missing_campaign
+    ON (present.ens_id = missing_campaign.ens_id)    
     LEFT OUTER JOIN (
          SELECT ens_id, count(distinct(form_factor_id)) AS results
          FROM result_form_factor
@@ -670,6 +742,242 @@ def main():
     ON failed.ens_id = present.ens_id
     );"""
         
+    summary_status_two_point = """
+    CREATE VIEW summary_status_two_point AS
+    -- Summary of the status of two_point fits 
+    (                 
+    SELECT 
+        two_point.ens_id,
+        two_point.present,
+        COALESCE(results.results, 0) AS results,
+        COALESCE(missing.missing, 0) AS missing,
+        two_point.present - (COALESCE(results.results, 0) + COALESCE(missing.missing, 0)) AS unaccounted,
+        COALESCE(campaign.campaign, 0) AS campaign,
+        COALESCE(missing_campaign.missing_campaign) AS missing_campaign	
+    FROM (
+        SELECT
+        ens_id,
+        count(corr_analysis_id) AS present
+        FROM correlator_analysis
+        GROUP BY(ens_id)
+        ) AS two_point
+    LEFT OUTER JOIN(
+        SELECT ens_id, count(*) AS campaign
+        FROM campaign_two_point AS camp
+        JOIN correlator_analysis AS corr ON corr.corr_analysis_id = camp.corr_analysis_id
+        GROUP BY(ens_id)
+        ) AS campaign
+    ON campaign.ens_id = two_point.ens_id	
+    LEFT OUTER JOIN(
+        SELECT ens_id, count(DISTINCT(corr_analysis_id)) AS results
+        FROM result_two_point
+        GROUP BY (ens_id)
+        ) AS results
+    ON results.ens_id = two_point.ens_id
+    LEFT OUTER JOIN(
+        SELECT ens_id, count(*) as missing
+        FROM missing_result_two_point
+        GROUP BY(ens_id)
+        ) AS missing
+    ON missing.ens_id = two_point.ens_id
+    LEFT OUTER JOIN(
+        SELECT ens_id, count(distinct(corr_analysis_id)) as missing_campaign
+        FROM missing_campaign_two_point
+        GROUP BY(ens_id)
+        ) AS missing_campaign
+    ON missing_campaign.ens_id = two_point.ens_id
+    );"""        
+       
+    campaign_two_point_alt_q = """
+    CREATE VIEW campaign_two_point_alt_q AS
+    (
+    SELECT
+        result_two_point.corr_analysis_id,
+        result_two_point.result_id,
+        'q' as criterion,
+        true as automated
+    FROM result_two_point
+    JOIN (
+        SELECT result.corr_analysis_id, max(q) AS q
+        FROM result_two_point AS result
+        JOIN analysis_two_point AS analysis
+        ON result.analysis_id = analysis.analysis_id
+        JOIN (SELECT * FROM junction_two_point WHERE solve_type = 'fine') AS junction
+        ON junction.corr_analysis_id = result.corr_analysis_id
+        JOIN two_point ON two_point.corr_id = junction.corr_id
+        WHERE
+            ((prior_alias = 'boosted prior, 1.0 discretization') AND (momentum != 'p000'))
+        GROUP BY(result.corr_analysis_id)
+    ) AS maxes
+    ON (result_two_point.corr_analysis_id = maxes.corr_analysis_id) AND
+       (result_two_point.q = maxes.q)
+    UNION
+    -- Grab the zero-momentum fits from the real campaign table
+    SELECT 
+        camp.corr_analysis_id,
+        camp.result_id,
+        camp.criterion,
+        camp.automated
+    FROM campaign_two_point as camp
+    JOIN (SELECT * FROM junction_two_point WHERE solve_type = 'fine') AS junction
+    ON junction.corr_analysis_id = camp.corr_analysis_id
+    JOIN two_point ON two_point.corr_id = junction.corr_id
+    WHERE (momentum = 'p000')
+    );"""       
+        
+    campaign_two_point_alt_quality_factor = """
+    CREATE VIEW campaign_two_point_alt_quality_factor AS
+    (
+    SELECT
+        result_two_point.corr_analysis_id,
+        result_two_point.result_id,
+        'quality_factor' as criterion,
+        true as automated
+    FROM result_two_point
+    JOIN (
+        SELECT result.corr_analysis_id, max(quality_factor) AS quality_factor
+        FROM result_two_point AS result
+        JOIN analysis_two_point AS analysis
+        ON result.analysis_id = analysis.analysis_id
+        JOIN (SELECT * FROM junction_two_point WHERE solve_type = 'fine') AS junction
+        ON junction.corr_analysis_id = result.corr_analysis_id
+        JOIN two_point ON two_point.corr_id = junction.corr_id
+        WHERE
+            ((prior_alias = 'boosted prior, 1.0 discretization') AND (momentum != 'p000'))
+        GROUP BY(result.corr_analysis_id)
+    ) AS maxes
+    ON (result_two_point.corr_analysis_id = maxes.corr_analysis_id) AND
+       (result_two_point.quality_factor = maxes.quality_factor)
+    UNION
+    -- Grab the zero-momentum fits from the real campaign table
+    SELECT 
+        camp.corr_analysis_id,
+        camp.result_id,
+        camp.criterion,
+        camp.automated
+    FROM campaign_two_point as camp
+    JOIN (SELECT * FROM junction_two_point WHERE solve_type = 'fine') AS junction
+    ON junction.corr_analysis_id = camp.corr_analysis_id
+    JOIN two_point ON two_point.corr_id = junction.corr_id
+    WHERE (momentum = 'p000')       
+    );"""       
+        
+    summary_two_point_alt_q = """
+    CREATE VIEW summary_two_point_alt_q AS
+    (
+    SELECT
+        result.ens_id,
+        camp.corr_analysis_id,
+        camp.result_id,
+        camp.criterion,
+        camp.automated,
+        result.params,
+        result.prior,
+        two_point.momentum,
+        two_point.m_light,
+        two_point.m_heavy,
+        alias.alias_light,
+        alias.alias_heavy
+    FROM campaign_two_point_alt_q AS camp
+    JOIN result_two_point AS result
+    ON (result.result_id = camp.result_id)
+    AND (result.corr_analysis_id = camp.corr_analysis_id)
+    JOIN (SELECT * FROM junction_two_point WHERE solve_type = 'fine') AS junction
+    ON junction.corr_analysis_id = camp.corr_analysis_id
+    JOIN two_point 
+    ON two_point.corr_id = junction.corr_id
+    JOIN alias_two_point AS alias ON alias.corr_id = two_point.corr_id
+    );"""
+
+    summary_two_point_alt_quality_factor = """
+    CREATE VIEW summary_two_point_alt_quality_factor AS
+    (
+    SELECT
+        result.ens_id,
+        camp.corr_analysis_id,
+        camp.result_id,
+        camp.criterion,
+        camp.automated,
+        result.params,
+        result.prior,
+        two_point.momentum,
+        two_point.m_light,
+        two_point.m_heavy,
+        alias.alias_light,
+        alias.alias_heavy
+    FROM campaign_two_point_alt_quality_factor AS camp
+    JOIN result_two_point AS result
+    ON (result.result_id = camp.result_id)
+    AND (result.corr_analysis_id = camp.corr_analysis_id)
+    JOIN (SELECT * FROM junction_two_point WHERE solve_type = 'fine') AS junction
+    ON junction.corr_analysis_id = camp.corr_analysis_id
+    JOIN two_point 
+    ON two_point.corr_id = junction.corr_id
+    JOIN alias_two_point AS alias ON alias.corr_id = two_point.corr_id
+    );"""    
+    
+    junction_two_point = """
+    CREATE MATERIALIZED VIEW junction_two_point AS
+    (
+    SELECT
+        two_point.ens_id,
+        corr_analysis_id,
+        corr_id, 
+        analysis_name,
+        CASE 
+            WHEN two_point.name LIKE '%%fine' THEN 'fine'
+            WHEN two_point.name LIKE '%%loose' THEN 'loose'
+            ELSE 'unknown'
+        END AS solve_type
+    FROM 
+    correlator_analysis
+    JOIN two_point ON 
+    (RTRIM(two_point.name,'losefin-_') = correlator_analysis.analysis_name) AND
+    (two_point.ens_id = correlator_analysis.ens_id)
+    );
+    """
+    
+    status_form_factor = """
+    CREATE VIEW status_form_factor AS
+    (
+    -- Grab all the statuses...
+    SELECT form_factor_id, status
+    FROM (
+        -- Here are completed results, with entry in campaign
+        SELECT form_factor_id, 'complete' AS status FROM campaign_form_factor
+        UNION
+        -- Here are partial results, with some fits but no campaign choice
+        SELECT DISTINCT(form_factor_id), 'partial_result' AS status FROM result_form_factor AS result
+        WHERE NOT (EXISTS (
+            SELECT FROM campaign_form_factor AS camp
+            WHERE camp.form_factor_id = result.form_factor_id
+            ))
+        UNION
+        -- Here are the missing results, where we don't have any fits
+        SELECT form_factor_id, 'missing_result' AS status FROM missing_result_form_factor
+    ) AS status
+    -- ...but exclude results where we marked a problem.
+    WHERE NOT (EXISTS (
+        SELECT FROM tough_form_factor as tough
+        WHERE tough.form_factor_id = status.form_factor_id
+        ))
+    UNION
+    -- Finally, grab the results we marked as a problem.
+    SELECT form_factor_id, 'problem' FROM tough_form_factor    
+    );"""
+    
+    transition_name = """
+    CREATE TABLE IF NOT EXISTS transition_name
+    (
+        transition_id SERIAL PRIMARY KEY,
+        form_factor_id integer REFERENCES form_factor(form_factor_id),
+        mother   text NOT NULL,
+        daughter text NOT NULL,
+        process  text NOT NULL,
+        log      text default '',
+        UNIQUE(form_factor_id)
+    );"""
+
     engine = db.make_engine()
 
     queries = [
@@ -692,22 +1000,34 @@ def main():
 #         analysis_form_factor,        
 #         reduction_form_factor,        
 #         result_form_factor,        
-#        queue_form_factor,
+#         queue_form_factor,
 #         glance_correlator_n_point,
 #         three_point,
 #         two_point,
 #         two_point_state_content        
 #         alias_quark_mass,
 #         alias_form_factor,
+#         alias_two_point,
 #         campaign_form_factor
+#         campaign_two_point,
+#         missing_campaign_two_point,
 #         missing_campaign_form_factor,
 #         missing_result_form_factor,
 #        summary_form_factor,
+#         summary_two_point,
 #        tough_form_factor,
 #        tough_two_point
 #         strong_coupling,
 #        missing_result_two_point,
-        summary_status,
+#         summary_status_form_factor,
+#         summary_status_two_point
+#         junction_two_point,
+#         campaign_two_point_alt_q,
+#         campaign_two_point_alt_quality_factor,
+#         summary_two_point_alt_q,
+#         summary_two_point_alt_quality_factor,
+#         status_form_factor,
+        transition_name,
     ]
     for query in queries:
         print(query)
