@@ -47,16 +47,16 @@ def main():
             raise ValueError("Output file must have '.h5' file stem")
         output_fname = args.fout
         _, tail = os.path.split(output_fname)
-        stem = tail.rstrip('.sqlite')
+        stem = tail.rstrip('sqlite')
     else:
         _, tail = os.path.split(input_db)
-        stem = tail.rstrip('.sqlite')
-        output_fname = "{stem}.hdf5".format(stem=stem)
+        stem = tail.rstrip('sqlite')
+        output_fname = "{stem}hdf5".format(stem=stem)
 
     if args.log:
         log_fname = args.log
     else:
-        log_fname = "cache_{stem}.log".format(stem=stem)
+        log_fname = "cache_{stem}log".format(stem=stem)
 
     run_reduction(input_db, output_fname, log_fname)
 
@@ -105,6 +105,11 @@ def tsm_single_config(df):
     Returns:
         array, the combined data
     """
+    for col in ['fine', 'loose']:
+        if col not in df.columns:
+            msg = "DataFrame must have column {0} for tsm.".format(col)
+            raise KeyError(msg)
+
     # Isolate the single measurement with a fine solve
     mask = ~df['fine'].isna()
 
@@ -127,6 +132,11 @@ def tsm_single_config(df):
 @timing
 def tsm(data):
     """Compute average correlator via truncated solver method."""
+    for col in ['tsrc', 'solve_type','data']:
+        if col not in data.columns:
+            msg = "DataFrame must have column {0} for tsm.".format(col)
+            raise KeyError(msg)
+    
     # Group according to trajectory
     cols = ['series', 'trajectory']
     group = data.groupby(cols)
@@ -186,11 +196,14 @@ class ReductionInterface(object):
     @timing
     def read_data(self, correlator_ids):
         """Get correlator data from db corresponding to correlator_id(s)."""
+        def _handle_ids(correlator_ids):
+            s = [str(elt) for elt in correlator_ids]
+            return '({0})'.format(','.join(s))
         query = """
             SELECT data.*, correlators.name FROM data
             JOIN correlators ON correlators.id = data.correlator_id
             WHERE correlator_id IN {0};""".\
-            format(str(tuple(correlator_ids)))
+            format(_handle_ids(correlator_ids))
         return pd.read_sql_query(query, self.engine)
 
     @staticmethod
@@ -211,7 +224,7 @@ class ReductionInterface(object):
     def unpackage(df):
         """Decompress column 'data' and infer 'solve_type' from basename."""
         df['data'] = df['dataBZ2'].apply(bz2.decompress)
-        df['data'] = df['data'].apply(ReductionInterface.to_floats)
+        df['data'] = df['data'].apply(str).apply(ReductionInterface.to_floats)
         df['solve_type'] = df['name'].\
             apply(ReductionInterface.infer_solve_type)
         return df
@@ -331,12 +344,32 @@ def basename_cached(engine, basename):
         is_cached = (basename in keys)
     except IOError:
         is_cached = False
+    except KeyError:
+        is_cached = False
     return is_cached
+
+class CachedData(np.ndarray):
+    """
+    Minimal wrapper to add attributes to numpy array.
+    Basically copied from the docs:
+    https://docs.scipy.org/doc/numpy/user/basics.subclassing.html
+    """
+    def __new__(cls, dset):
+        obj = np.asarray(dset).view(cls)
+        obj.attrs = dict(dset.attrs)        
+        return obj
+    
+    
+    def __array_finalize__(self, obj):
+        if obj is None: return
+        self.attrs = getattr(obj, 'attrs', None)
 
 
 def get_correlator(engine, basename):
     """ Get a correlator from the cache."""
     h5fname = default_cache_name(engine)
+    if basename.endswith('loose') or basename.endswith('fine'):
+        raise ValueError("'basename' cannot end with the suffixes 'loose' or 'fine'.")
     if (not cache_exists(engine)) or (not basename_cached(engine, basename)):
         # Process a missing correlator into the cache
         logger.error('missing correlator %s', basename)
@@ -345,7 +378,8 @@ def get_correlator(engine, basename):
         interface.process_data(basename=basename)
     # Grab the correaltor
     with h5py.File(h5fname, 'r') as ifile:
-        arr = ifile['data'][basename][:]
+        dset = ifile['data'][basename]
+        arr = CachedData(dset)
     return arr
 
 
