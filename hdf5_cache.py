@@ -29,6 +29,16 @@ def timing(fcn):
         return result
     return wrap
 
+def str2bool(v):
+    """ parse string to bool """
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def main():
     """run from the command line"""
@@ -39,12 +49,15 @@ def main():
                         help="output filename including full path")
     parser.add_argument("--log", type=str,
                         help="log filename including full path")
-
+    parser.add_argument("--test", type=str2bool, nargs='?',
+                        const=True, default=False, 
+                        help="Whether to run in test mode (no data is read).")
+    
     args = parser.parse_args()
     input_db = args.db
     if args.fout:
-        if not args.fout.endswith(".h5"):
-            raise ValueError("Output file must have '.h5' file stem")
+        if (not args.fout.endswith(".h5")) and (not args.fout.endswith(".hdf5")):
+            raise ValueError("Output file must have '.h5' or '.hdf5' file stem")
         output_fname = args.fout
         _, tail = os.path.split(output_fname)
         stem = tail.rstrip('sqlite')
@@ -58,10 +71,11 @@ def main():
     else:
         log_fname = "cache_{stem}log".format(stem=stem)
 
-    run_reduction(input_db, output_fname, log_fname)
+    test_only = args.test
+    run_reduction(input_db, output_fname, log_fname, test_only)
 
 
-def run_reduction(input_db, output_fname, log_fname):
+def run_reduction(input_db, output_fname, log_fname, test_only=False):
     """Run the reduction from the sqlite db to HDF5."""
     logging.basicConfig(filename=log_fname,
                         format='%(levelname)s:%(message)s',
@@ -72,7 +86,10 @@ def run_reduction(input_db, output_fname, log_fname):
     logger.info('FNAME:log name: %s', log_fname)
     logger.info('TIMESTAMP:start, %s', datetime.datetime.now().isoformat())
     interface = ReductionInterface(input_db, output_fname)
-    interface.process_data()
+    if test_only:
+        logger.info('TEST: Skipping reading actual data from db.')
+    else:
+        interface.process_data()
     logger.info('TIMESTAMP:finish, %s', datetime.datetime.now().isoformat())
 
 
