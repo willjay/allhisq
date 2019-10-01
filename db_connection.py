@@ -2,6 +2,8 @@ import sqlalchemy as sqla
 import db_settings
 import pandas as pd
 import os
+from contextlib import contextmanager
+from sqlalchemy.orm import Session
 
 def get_engines():
     """
@@ -36,7 +38,7 @@ def get_engines():
         db_name  = os.path.join(location,name+'.sqlite')
 
         if (db_type != 'sqlite'):
-            raise ValueError("Exected sqlite databse")
+            raise ValueError("Expected sqlite databse")
 
         engines[ens_id] = make_engine(db_choice=db_name, sqlite=True)
 
@@ -75,4 +77,23 @@ def make_engine(NEED_PASSWORD=True, PORT_FWD=False, port=8887, db_choice=None, s
         else:
             url = 'postgresql+psycopg2://{user}@{host}:{port}/{database}'
             
-        return sqla.create_engine(url.format(**settings))    
+        return sqla.create_engine(url.format(**settings))   
+
+@contextmanager
+def session_scope(engine):
+    """
+    Provide a transactional scope around a series of operations.
+    Recipe taken from the docs: 
+    [https://docs.sqlalchemy.org/en/13/orm/session_basics.html]
+    See also the following thread for more context:
+    [https://stackoverflow.com/questions/14799189/avoiding-boilerplate-session-handling-code-in-sqlalchemy-functions]
+    """
+    session = Session(engine)
+    try:
+        yield session
+        session.commit()
+    except:
+        session.rollback()
+        raise
+    finally:
+        session.close()   
