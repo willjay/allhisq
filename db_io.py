@@ -5,10 +5,21 @@ import gvar as gv
 import numpy as np
 import ast
 
+def sanitize_record(record, table):
+    """
+    Sanitizes the dict 'record' for writing to 'table',
+    i.e., restricts to keys which appear as columns of table.
+    """
+    try:
+        columns = table.columns
+    except AttributeError:
+        columns = vars(table)
+    return {key: value for key, value in record.items() if key in columns}
+
 def to_text(d):
     """ Wrapper for converting dicts to text for postgres"""
     d_new = {}
-    for k, v in sorted(d.iteritems()):
+    for k, v in sorted(d.items()):
         d_new[k] = str(v)    
     return '$delim${{{0}}}$delim$'.format(str(d_new)) 
 
@@ -18,7 +29,7 @@ def parse_string_dict(s):
     "{{'key1': 'val1', 'key2': 'val2', ...}}"    
     """
     d = ast.literal_eval(s[1:-1])
-    d = {key : parse_string(val) for key, val in d.iteritems()}
+    d = {key : parse_string(val) for key, val in d.items()}
     return d
         
 def parse_string(s):
@@ -241,7 +252,7 @@ def build_upsert_query(engine, table_name, src_dict, do_update=False):
                     return str(False)
         elif dtype.startswith('json'):
             # In this case, value itself should be a dict
-            value = ','.join(['"{k}":"{v}"'.format(k=k,v=v) for k,v in value.iteritems()])
+            value = ','.join(['"{k}":"{v}"'.format(k=k,v=v) for k,v in value.items()])
             value = "'{" + value + "}'"
             return value
         elif dtype == 'text[]':
@@ -272,7 +283,7 @@ def build_upsert_query(engine, table_name, src_dict, do_update=False):
         Return:
             str, containing the values as described above.
         """
-        tmp_uprow = {k: _for_pgsql(v, types[k]) for k,v in uprow.iteritems()}
+        tmp_uprow = {k: _for_pgsql(v, types[k]) for k,v in uprow.items()}
         mappable = ",".join(["{" + str(k) + "}" for k in uprow.keys()])
         values = mappable.format(**tmp_uprow)
         return values
@@ -298,7 +309,7 @@ def build_upsert_query(engine, table_name, src_dict, do_update=False):
             str, containing the "set pairs" as described above.
         """
         pairs = []
-        for k, v in uprow.iteritems():            
+        for k, v in uprow.items():            
             pairs.append("{0}={1}".format(k, _for_pgsql(v, types[k])))
         return ", ".join(pairs)
         
