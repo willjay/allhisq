@@ -185,7 +185,7 @@ class ReductionInterface(object):
         self.db_choice = db_choice
         with h5py.File(h5fname) as ifile:
             try:
-                self.existing = ifile['data'].keys()
+                self.existing = list(ifile['data'].keys())
             except KeyError:
                 self.existing = []
         logger.info('Total existing entries in HDF5 file: %s',
@@ -357,7 +357,7 @@ def basename_cached(engine, basename):
     h5fname = default_cache_name(engine)
     try:
         with h5py.File(h5fname, 'r') as ifile:
-            keys = ifile['data'].keys()
+            keys = list(ifile['data'].keys())
         is_cached = (basename in keys)
     except IOError:
         is_cached = False
