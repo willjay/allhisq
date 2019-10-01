@@ -977,6 +977,32 @@ def main():
         log      text default '',
         UNIQUE(form_factor_id)
     );"""
+    
+    meson_name = (
+        "CREATE TABLE IF NOT EXISTS meson_name"
+        "("
+        "meson_id SERIAL PRIMARY KEY, "
+        "corr_id integer REFERENCES correlator_n_point(corr_id), "
+        "name text NOT NULL, "
+        "log text default '', "
+        "UNIQUE(corr_id)"
+        ");"
+    )
+        
+    fastfit = (
+        "CREATE TABLE IF NOT EXISTS fastfit "
+        "("
+        "fastfit_id SERIAL PRIMARY KEY, "
+        "corr_analysis_id integer REFERENCES correlator_analysis(corr_analysis_id), "
+        "energy text NOT NULL, "
+        "ampl text NOT NULL, "
+        "tmin integer NOT NULL, "
+        "tmax integer, "
+        "nterm integer NOT NULL, "
+        "osc boolean NOT NULL, "
+        "UNIQUE(corr_analysis_id)"
+        ");"
+    )
 
     engine = db.make_engine()
 
@@ -1027,7 +1053,9 @@ def main():
 #         summary_two_point_alt_q,
 #         summary_two_point_alt_quality_factor,
 #         status_form_factor,
-        transition_name,
+#        transition_name,
+#         meson_name
+        fastfit
     ]
     for query in queries:
         print(query)
