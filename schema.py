@@ -1004,6 +1004,18 @@ def main():
         ");"
     )
 
+    corr_diagnostic = (
+        "CREATE TABLE IF NOT EXISTS corr_diagnostic "
+        "("
+        "corr_diagnostic_id SERIAL PRIMARY KEY, "
+        "corr_id integer REFERENCES correlator_n_point(corr_id), "
+        "average_noise_to_signal float NOT NULL, "
+        "median_noise_to_signal float NOT NULL, "
+        "UNIQUE(corr_id)"
+        ");"
+    )
+    
+    
     engine = db.make_engine()
 
     queries = [
@@ -1055,7 +1067,8 @@ def main():
 #         status_form_factor,
 #        transition_name,
 #         meson_name
-        fastfit
+#        fastfit
+        corr_diagnostic
     ]
     for query in queries:
         print(query)
