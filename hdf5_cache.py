@@ -13,7 +13,7 @@ import pandas as pd
 import sqlalchemy as sqla
 import h5py
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 def timing(fcn):
@@ -24,7 +24,7 @@ def timing(fcn):
         t_initial = time.time()
         result = fcn(*args, **kwargs)
         t_final = time.time()
-        logger.info("TIMING: {0} took: {1:.4f} sec".format(
+        LOGGER.info("TIMING: {0} took: {1:.4f} sec".format(
             fcn.__name__, t_final - t_initial))
         return result
     return wrap
@@ -81,16 +81,16 @@ def run_reduction(input_db, output_fname, log_fname, test_only=False):
                         format='%(levelname)s:%(message)s',
                         level=logging.INFO)
     # Carry out the work
-    logger.info('FNAME:input database name: %s', input_db)
-    logger.info('FNAME:output hdf5 name: %s', output_fname)
-    logger.info('FNAME:log name: %s', log_fname)
-    logger.info('TIMESTAMP:start, %s', datetime.datetime.now().isoformat())
+    LOGGER.info('FNAME:input database name: %s', input_db)
+    LOGGER.info('FNAME:output hdf5 name: %s', output_fname)
+    LOGGER.info('FNAME:log name: %s', log_fname)
+    LOGGER.info('TIMESTAMP:start, %s', datetime.datetime.now().isoformat())
     interface = ReductionInterface(input_db, output_fname)
     if test_only:
-        logger.info('TEST: Skipping reading actual data from db.')
+        LOGGER.info('TEST: Skipping reading actual data from db.')
     else:
         interface.process_data()
-    logger.info('TIMESTAMP:finish, %s', datetime.datetime.now().isoformat())
+    LOGGER.info('TIMESTAMP:finish, %s', datetime.datetime.now().isoformat())
 
 
 def make_engine(db_choice):
@@ -188,7 +188,7 @@ class ReductionInterface(object):
                 self.existing = list(ifile['data'].keys())
             except KeyError:
                 self.existing = []
-        logger.info('Total existing entries in HDF5 file: %s',
+        LOGGER.info('Total existing entries in HDF5 file: %s',
                     len(self.existing))
         self.engine = make_engine(db_choice)
         self.pending = self.get_pending()
@@ -199,14 +199,14 @@ class ReductionInterface(object):
             SELECT id as correlator_id, RTRIM(name,'_-finelos') AS basename
             FROM correlators;"""
         pending = pd.read_sql_query(query, self.engine)
-        logger.info('Total basenames in db: %s',
+        LOGGER.info('Total basenames in db: %s',
                     len(pending['basename'].unique()))
         # Restrict to correlators which are NOT yet in the HDF5 file.
         # This is what really makes them "pending" and ensures that
         # the script is safe to run twice without clobbering data.
         mask = ~pending['basename'].isin(self.existing)
         pending = pending[mask]
-        logger.info('Total pending basenames: %s',
+        LOGGER.info('Total pending basenames: %s',
                     len(pending['basename'].unique()))
         return pending
 
@@ -234,14 +234,17 @@ class ReductionInterface(object):
     @staticmethod
     def to_floats(string_list, delim='\n'):
         """Recover list of floats from a string representation."""
-        return [float(val) for val in string_list.split(delim)]
+        if isinstance(string_list, bytes):
+            string_list = string_list.decode()  # <type 'bytes'> to <type 'str'>
+        values = string_list.split(delim)
+        return [float(val) for val in values]
 
     @staticmethod
     @timing
     def unpackage(df):
         """Decompress column 'data' and infer 'solve_type' from basename."""
         df['data'] = df['dataBZ2'].apply(bz2.decompress)
-        df['data'] = df['data'].apply(str).apply(ReductionInterface.to_floats)
+        df['data'] = df['data'].apply(ReductionInterface.to_floats)
         df['solve_type'] = df['name'].\
             apply(ReductionInterface.infer_solve_type)
         return df
@@ -249,8 +252,8 @@ class ReductionInterface(object):
     def __iter__(self):
         """Read and reduce pending data."""
         for basename, subdf in self.pending.groupby('basename'):
-            logger.info('INFO: starting %s', basename)
-            logger.info('TIMESTAMP: %s', datetime.datetime.now().isoformat())
+            LOGGER.info('INFO: starting %s', basename)
+            LOGGER.info('TIMESTAMP: %s', datetime.datetime.now().isoformat())
             data = self.read_data(subdf['correlator_id'].values)
             data = ReductionInterface.unpackage(data)
             reduced = tsm(data)
@@ -264,8 +267,8 @@ class ReductionInterface(object):
         if subdf.empty:
             msg = "Error processing basename '{0}'".format(basename)
             raise ValueError(msg)
-        logger.info('INFO: starting %s', basename)
-        logger.info('TIMESTAMP: %s', datetime.datetime.now().isoformat())
+        LOGGER.info('INFO: starting %s', basename)
+        LOGGER.info('TIMESTAMP: %s', datetime.datetime.now().isoformat())
         data = self.read_data(subdf['correlator_id'].values)
         data = ReductionInterface.unpackage(data)
         reduced = tsm(data)
@@ -334,7 +337,7 @@ class ReductionInterface(object):
         if sqlite_attrs is None:
             sqlite_attrs = {}
         for attrs in [postgres_attrs, sqlite_attrs]:
-            for key, val in attrs.iteritems():
+            for key, val in attrs.items():
                 dset.attrs[key] = val
 
         return None
@@ -389,7 +392,7 @@ def get_correlator(engine, basename):
         raise ValueError("'basename' cannot end with the suffixes 'loose' or 'fine'.")
     if (not cache_exists(engine)) or (not basename_cached(engine, basename)):
         # Process a missing correlator into the cache
-        logger.error('missing correlator %s', basename)
+        LOGGER.error('missing correlator %s', basename)
         input_db = engine.url.database
         interface = ReductionInterface(input_db, h5fname)
         interface.process_data(basename=basename)
