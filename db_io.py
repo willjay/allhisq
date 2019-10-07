@@ -4,6 +4,27 @@ import warnings
 import gvar as gv
 import numpy as np
 import ast
+import alias
+
+def get_form_factor_data(form_factor_id, engines):
+    query = (
+        "SELECT ens_id, RTRIM(name, '-_fine') as BASENAME, corr_type "
+        "FROM junction_form_factor AS junction "
+        "JOIN correlator_n_point AS corr ON (corr.corr_id = junction.corr_id) "
+        "WHERE (form_factor_id = {form_factor_id}) AND (name LIKE '%%fine');"
+    )
+    query = query.format(form_factor_id=form_factor_id)
+    df = pd.read_sql_query(query, engines['postgres'])
+    ens_id = df['ens_id'].unique().item()
+    basenames = df['basename'].values
+    basenames = [name for name in basenames if not
+                 (alias.match_2pt(name) and name.startswith('A4-A4'))]    
+    data = {}
+    aliases = alias.get_aliases(basenames)
+    aliases = alias.apply_naming_convention(aliases)
+    for basename in basenames:
+        data[aliases[basename]] = hdf5_cache.get_correlator(engines[ens_id], basename)
+    return data
 
 def sanitize_record(record, table):
     """
