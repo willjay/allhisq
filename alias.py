@@ -160,11 +160,11 @@ def get_aliases(basenames):
                 "Two-point functions did not match three-point functions.")
     elif len(two_points) == 2:
         if is_sink(two_points[0], corr3) and is_source(two_points[1], corr3):
-            aliases[two_points[0]['basename']] = 'source'
-            aliases[two_points[1]['basename']] = 'sink'
-        elif is_sink(two_points[1], corr3) and is_source(two_points[0], corr3):
             aliases[two_points[0]['basename']] = 'sink'
             aliases[two_points[1]['basename']] = 'source'
+        elif is_sink(two_points[1], corr3) and is_source(two_points[0], corr3):
+            aliases[two_points[0]['basename']] = 'source'
+            aliases[two_points[1]['basename']] = 'sink'
         else:
             raise ValueError(
                 "Two-point functions did not match three-point functions.")
