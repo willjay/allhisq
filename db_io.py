@@ -1,3 +1,4 @@
+import logging
 import sqlalchemy as sqla
 import pandas as pd
 import warnings
@@ -5,8 +6,25 @@ import gvar as gv
 import numpy as np
 import ast
 import alias
+import hdf5_cache
+from psycopg2.extensions import register_adapter, AsIs
 
-def get_form_factor_data(form_factor_id, engines):
+LOGGER = logging.getLogger(__name__)
+
+# The cludgy hack seems to be necessary in python 3.7.
+# With it, the code below works. Without it, it bombs.
+# Previously it just worked...
+def adapt_numpy_int64(numpy_int64):
+    """
+    Adapting numpy.int64 type to SQL-conform int type using psycopg extension, see [1]_ for more info.
+    References:
+    http://initd.org/psycopg/docs/advanced.html#adapting-new-python-types-to-sql-syntax
+    """
+    return AsIs(numpy_int64)
+register_adapter(np.int64, adapt_numpy_int64) 
+
+
+def get_form_factor_data(form_factor_id, engines, apply_alias=True):
     query = (
         "SELECT ens_id, RTRIM(name, '-_fine') as BASENAME, corr_type "
         "FROM junction_form_factor AS junction "
@@ -20,10 +38,13 @@ def get_form_factor_data(form_factor_id, engines):
     basenames = [name for name in basenames if not
                  (alias.match_2pt(name) and name.startswith('A4-A4'))]    
     data = {}
-    aliases = alias.get_aliases(basenames)
-    aliases = alias.apply_naming_convention(aliases)
     for basename in basenames:
-        data[aliases[basename]] = hdf5_cache.get_correlator(engines[ens_id], basename)
+        data[basename] = hdf5_cache.get_correlator(engines[ens_id], basename)
+    if apply_alias:
+        aliases = alias.get_aliases(basenames)
+        aliases = alias.apply_naming_convention(aliases)
+        for basename in basenames:
+            data[aliases[basename]] = data.pop(basename)        
     return data
 
 def sanitize_record(record, table):
@@ -142,6 +163,7 @@ def upsert(engine, table_name, df):
                     index_elements=primary_keys,
                     set_=update_dict,
                   )
+    LOGGER.debug(update_stmt)
     # execute
     with engine.connect() as conn:
         result = conn.execute(update_stmt)
