@@ -1,8 +1,10 @@
 """
-A simple utility for parsing correlator metadata out of sqlite databases into
-the central analysis database. Typically this metadata is NOT normalized in the
-sqlite databases. This utility normalizes the metadata before writing to the
-central database. For example, see the function 'wrangle' below.
+A simple utility for parsing sqlite databases into the central postgres analysis 
+database. If the database is not previously known, this script registers its
+location, lattice spacing (inferred from the database name), and the names of 
+its correlation functions. This script then parses the metadata (which is 
+typically NOT normalized). This script normalizes the metadata before writing to
+the central database. For example, see the function 'wrangle' below.
 """
 import os
 import re
@@ -14,7 +16,10 @@ from . import db_connection as db
 
 
 def main():
-    """ Parses the metadata out of a hard-coded database."""
+    """
+    Parses a database, including location, lattice spacing, the names of the 
+    correlation functions, and their associated metedata.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("db", type=str,
                         help="input database including full path")
