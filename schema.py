@@ -1015,6 +1015,31 @@ def main():
         ");"
     )
     
+    corr_sign_flip = (
+        "CREATE TABLE IF NOT EXISTS corr_sign_flip "
+        "("
+        "corr_sign_flip_id SERIAL PRIMARY KEY, "
+        "corr_id integer REFERENCES correlator_n_point(corr_id), "
+        "tmin integer NOT NULL, "
+        "tmax integer NOT NULL, "
+        "nconfig integer NOT NULL, "
+        "total integer NOT NULL, "
+        "nflips integer NOT NULL, "
+        "UNIQUE(corr_id, tmin, tmax, nconfig)"
+        ");"
+    )    
+    
+    form_factor_r_guess = (    
+        "CREATE TABLE IF NOT EXISTS form_factor_r_guess "
+        "( "
+        "r_guess_id SERIAL PRIMARY KEY, "
+        "form_factor_id integer REFERENCES form_factor(form_factor_id), "
+        "r_guess text NOT NULL, "
+        "calcdate timestamp with time zone, "
+        "UNIQUE(form_factor_id)"
+        ");"
+    )
+    
     
     engine = db.make_engine()
 
@@ -1066,9 +1091,11 @@ def main():
 #         summary_two_point_alt_quality_factor,
 #         status_form_factor,
 #        transition_name,
-#         meson_name
-#        fastfit
-        corr_diagnostic
+#         meson_name,
+#        fastfit,
+#         corr_diagnostic,
+#         corr_sign_flip,
+        form_factor_r_guess
     ]
     for query in queries:
         print(query)
