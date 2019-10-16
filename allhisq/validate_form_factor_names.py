@@ -1,11 +1,10 @@
 """
-Validates the correlator names appearing in the
-Postgres analysis database for use with the existing
-analysis framework.
+Validates the correlator names appearing in the Postgres analysis database for
+use with the existing analysis framework.
 """
 import pandas as pd
-import db_connection as db
-import alias
+from . import db_connection as db
+from . import alias
 
 
 def main():
@@ -26,7 +25,7 @@ def main():
         "ON transition_name.form_factor_id = ff.form_factor_id;"""
     )
     engines = db.get_engines()
-    df = pd.read_sql_query(query, engines['postgres'])
+    dataframe = pd.read_sql_query(query, engines['postgres'])
 
     # Exlclude two-point functions starting with 'A4-A4'
     # These are new and tend to mess up my pipeline.
@@ -43,14 +42,14 @@ def main():
     )
 
     is_two_point =\
-        (df['corr_type'] == 'light-light') |\
-        (df['corr_type'] == 'heavy-light')
-    has_prefix = df['basename'].str.startswith(exclude_prefix)
+        (dataframe['corr_type'] == 'light-light') |\
+        (dataframe['corr_type'] == 'heavy-light')
+    has_prefix = dataframe['basename'].str.startswith(exclude_prefix)
     mask = ~(is_two_point & has_prefix)
-    df = df[mask]
+    dataframe = dataframe[mask]
 
     # Conduct the validation for each form factor analysis
-    groups = df.groupby('form_factor_id')
+    groups = dataframe.groupby('form_factor_id')
     for form_factor_id, subdf in groups:
         basenames = subdf['basename'].values
         try:

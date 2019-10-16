@@ -1,9 +1,9 @@
-import sqlalchemy as sqla
-import db_settings
-import pandas as pd
 import os
 from contextlib import contextmanager
+import pandas as pd
+import sqlalchemy as sqla
 from sqlalchemy.orm import Session
+from . import db_settings
 
 def get_engines():
     """
@@ -12,7 +12,7 @@ def get_engines():
     various external databases.
     """
     # Engine for analysis database
-    engines = {'postgres' : make_engine() }
+    engines = {'postgres': make_engine()}
 
     # Get locations of external databases
     query = """

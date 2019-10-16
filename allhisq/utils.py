@@ -1,3 +1,6 @@
+"""
+Helpful utility functions
+"""
 import time
 import functools
 import logging

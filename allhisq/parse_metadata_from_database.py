@@ -1,23 +1,26 @@
-""" doc here """
+"""
+A simple utility for parsing correlator metadata out of sqlite databases into
+the central analysis database. Typically this metadata is NOT normalized in the
+sqlite databases. This utility normalizes the metadata before writing to the
+central database. For example, see the function 'wrangle' below.
+"""
 import os
-import sys
 import re
-import pandas as pd
 import ast
 import argparse
-import sqlalchemy as sqla
+import pandas as pd
 from sqlalchemy.ext.automap import automap_base
-from sqlalchemy.orm import Session
-sys.path.append('/home/wjay/GitHub/allhisq')
-import db_connection as db
+from . import db_connection as db
 
 
 def main():
-
-    # Input defined here
-#     db_full_path = "/home/wjay/dbs/allHISQ/a0.12/l3264f211b600m00507m0507m628-allHISQ.sqlite"
-    db_full_path = "/home/wjay/dbs/allHISQ/a0.12/l2464f211b600m0102m0509m635-allHISQ-redo.sqlite"
-    db_info = parse_db_name(db_full_path)
+    """ Parses the metadata out of a hard-coded database."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("db", type=str,
+                        help="input database including full path")
+    args = parser.parse_args()
+    input_db = args.db
+    db_info = parse_db_name(input_db)
 
     # Reflect schema from central database
     engines = db.get_engines()
@@ -26,7 +29,7 @@ def main():
     CentralBase.prepare(engine_pg, reflect=True)
 
     # Locate ens_id, registering a new ensemble if necessary
-    ens_id = find_engine(db_full_path, engines)
+    ens_id = find_engine(input_db, engines)
     if ens_id is None:
         ens_id = register_ensemble(engine_pg, db_info, CentralBase)
         # Need a fresh set of engines after registering
@@ -57,13 +60,14 @@ def main():
     records = new.to_dict(orient='records')
 
     print('Total new entries: {}'.format(len(records)))
-    
+
     # Write new correlators to database
     for record in records:
         register_correlator(engine_pg, record, CentralBase)
 
 
 def extract_nsnt(nsnt):
+    """ Extracts the values of ns and nt from a string """
     if (len(nsnt) == 4) or (len(nsnt) == 5):
         ns = int(nsnt[:2])
         nt = int(nsnt[2:])
@@ -75,6 +79,10 @@ def extract_nsnt(nsnt):
 
 
 def sanitize_record(record, table):
+    """
+    Sanitize the dict 'record', making sure it only has keys corresponding
+    to the colums in 'table'.
+    """
     try:
         columns = table.columns
     except AttributeError:
@@ -83,8 +91,7 @@ def sanitize_record(record, table):
 
 
 def register_correlator(engine_pg, record, CentralBase):
-    """Registers a correlator in the central db."""
-
+    """ Registers a correlator in the central db """
     Corr = CentralBase.classes.correlator_n_point
     MetaDataCorr = CentralBase.classes.meta_data_correlator
     MetaDataSeq = CentralBase.classes.meta_data_sequential
@@ -103,8 +110,6 @@ def register_correlator(engine_pg, record, CentralBase):
             record['meta_correlator_id'] = meta_corr.meta_correlator_id
             meta_seq = MetaDataSeq(**sanitize_record(record, MetaDataSeq))
             session.add(meta_seq)
-
-#     return corr.corr_id, meta_corr.meta_correlator_id
 
 
 def register_ensemble(engine_pg, vals, CentralBase):
@@ -147,7 +152,7 @@ def parse_db_name(db_full_path):
     'l{nsnt}b{beta}f{fermion_count}b{beta}m{m_light}m{m_strange}m{m_charm}-{campaign}.{suffix}'
     """
     location, name = os.path.split(db_full_path)
-    
+
     # Extract lattice spacing from the path
     regex = re.compile(r'[a](\d+\.\d+)$')
     match = re.search(regex, location)
@@ -168,8 +173,8 @@ def parse_db_name(db_full_path):
         suffix_idx = 9
         if not match:
             raise ValueError("Invalid db_name")
-            
-    name = name.rstrip('.sqlite')            
+
+    name = name.rstrip('.sqlite')
     nsnt = match.group(1).lstrip('l')
     ns, nt = extract_nsnt(nsnt)
     return {
@@ -222,9 +227,9 @@ def wrangle(df_meta, two_point_prefix='P5-P5_RW'):
     return df_meta
 
 
-def parse_lattice_size(s):
-    """Converts str to list of ints."""
-    return [int(val) for val in s.split(',')]
+def parse_lattice_size(str_of_ints):
+    """ Converts str to list of ints """
+    return [int(val) for val in str_of_ints.split(',')]
 
 
 def unpackage_antiquark_sink_ops(df_meta):
