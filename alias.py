@@ -154,7 +154,7 @@ def get_aliases(basenames):
     if len(two_points) == 1:
         corr2, = two_points  # pylint: disable=unbalanced-tuple-unpacking
         if is_sink(corr2, corr3) and is_source(corr2, corr3):
-            aliases[basename] = 'source and sink'
+            aliases[corr2['basename']] = 'source and sink'
         else:
             raise ValueError(
                 "Two-point functions did not match three-point functions.")
