@@ -8,12 +8,10 @@ import collections
 import pandas as pd
 import numpy as np
 from sqlalchemy.exc import OperationalError
-# local imports
-import db_connection as db
-import db_io
-import hdf5_cache
-import utils
-
+from . import db_connection as db
+from . import db_io
+from . import hdf5_cache
+from . import utils
 
 
 fileConfig('logging_config.ini')
@@ -39,8 +37,6 @@ def main():
             continue
         write_diagnostics(engines['postgres'], records)
         LOGGER.info('Finished ens_id: %d', ens_id)
-
-# -- end main -- #
 
 
 Stats = collections.namedtuple("Stats", ['average', 'median'])
