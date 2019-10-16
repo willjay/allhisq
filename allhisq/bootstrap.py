@@ -5,8 +5,8 @@
  * 
 """
 
-import db_connection as db    
-import db_io as io
+from . import db_connection as db    
+from . import db_io 
 import pandas as pd
 import os, sys
 import sqlalchemy as sqla
@@ -23,7 +23,8 @@ def main():
             # Filenames start with "l{ns}{nt}f..."
             if fname.startswith("l") and fname.endswith("sqlite"):
                 process_database(fname, root)
-                
+
+
 def process_database(fname, location):
 
     print("[+] Processing the database {0}".format(fname))
@@ -39,22 +40,22 @@ def process_database(fname, location):
     existing = fetch_existing(engine)    
     if (location not in existing['location'].values) and (name not in existing['name'].values):
         ens = {'name':name, 'ns':ns, 'nt':nt, 'location':location, 'type': 'sqlite'}
-        query = io.build_upsert_query(engine, 'ensemble', ens)
+        query = db_io.build_upsert_query(engine, 'ensemble', ens)
         engine.execute(query)
         ens_id = fetch_ens_id(engine, ens)
-    
+   
         # Record location of database
         ens['ens_id'] = ens_id
-        query = io.build_upsert_query(engine, 'external_database', ens)
+        query = db_io.build_upsert_query(engine, 'external_database', ens)
         engine.execute(query)
- 
+
         if ens_id is None:
             msg = "Missing ensemble? ens ={0}".format(ens)
             raise ValueError(msg)
 
         # Record the names of correlators in analysis database
         corr_names = fetch_corr_names(sqlite_engine)
-        write_corr_names(engine, corr_names, ens_id)                
+        write_corr_names(engine, corr_names, ens_id)
     else:
         print("[+] Skipping the database {0} (already processed).".format(fname))
 
@@ -71,8 +72,8 @@ def fetch_ens_id(engine, src, verbose=False):
 #    query = """
 #        SELECT ens_id FROM ensemble where
 #        (name='{name}') and (ns='{ns}') and (nt='{nt}')""".format(**src)
-#    return io.fetch_id(engine, query, verbose, tag='ens_id')
-    return io.fetch_id(engine, 'ensemble', src, verbose=False)
+#    return db_io.fetch_id(engine, query, verbose, tag='ens_id')
+    return db_io.fetch_id(engine, 'ensemble', src, verbose=verbose)
 
 def fetch_corr_names(engine):
             
@@ -87,7 +88,7 @@ def write_corr_names(engine, corr_names, ens_id):
     for count, corr_name in enumerate(corr_names):
         progress(count, total, corr_name)
         src['name'] = corr_name
-        query = io.build_upsert_query(engine, 'correlator_n_point', src)
+        query = db_io.build_upsert_query(engine, 'correlator_n_point', src)
         engine.execute(query)
 
 def extract_nsnt(name):
