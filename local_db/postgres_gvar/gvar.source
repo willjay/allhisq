@@ -1,0 +1,218 @@
+---------------------------------------------------------------------------
+-- Author: William Jay (wjay@fnal.gov)
+-- Adapted from 
+-- https://github.com/postgres/postgres/blob/master/src/tutorial/complex.source
+-- gvar.sql-
+--    This file shows how to create a new user-defined type and how to
+--    use this new type.
+--
+--
+-- Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+-- Portions Copyright (c) 1994, Regents of the University of California
+--
+---------------------------------------------------------------------------
+-----------------------------
+-- Creating a new type:
+--	We are going to create a new type called 'gvar' which represents
+--	gaussian random variables for modelling "measurements with errors".
+--	A user-defined type must have an input and an output function, and
+--	optionally can have binary input and output functions.  All of these
+--	are usually user-defined C functions.
+-----------------------------
+-- Assume the user defined functions are in _OBJWD_/gvar$DLSUFFIX
+-- (we do not want to assume this is in the dynamic loader search path).
+-- Look at $PWD/gvar.c for the source.  Note that we declare all of
+-- them as STRICT, so we do not need to cope with NULL inputs in the
+-- C code.  We also mark them IMMUTABLE, since they always return the
+-- same outputs given the same inputs.
+-- the input function 'gvar_in' takes a null-terminated string (the
+-- textual representation of the type) and turns it into the internal
+-- (in memory) representation. You will get a message telling you 'gvar'
+-- does not exist yet but that's okay.
+CREATE FUNCTION gvar_in(cstring)
+   RETURNS gvar
+   AS '_OBJWD_/gvar'
+   LANGUAGE C IMMUTABLE STRICT;
+-- the output function 'gvar_out' takes the internal representation and
+-- converts it into the textual representation.
+CREATE FUNCTION gvar_out(gvar)
+   RETURNS cstring
+   AS '_OBJWD_/gvar'
+   LANGUAGE C IMMUTABLE STRICT;
+-- the binary input function 'gvar_recv' takes a StringInfo buffer
+-- and turns its contents into the internal representation.
+CREATE FUNCTION gvar_recv(internal)
+   RETURNS gvar
+   AS '_OBJWD_/gvar'
+   LANGUAGE C IMMUTABLE STRICT;
+-- the binary output function 'gvar_send' takes the internal representation
+-- and converts it into a (hopefully) platform-independent bytea string.
+CREATE FUNCTION gvar_send(gvar)
+   RETURNS bytea
+   AS '_OBJWD_/gvar'
+   LANGUAGE C IMMUTABLE STRICT;
+-- now, we can create the type. The internallength specifies the size of the
+-- memory block required to hold the type (we need two 8-byte doubles).
+CREATE TYPE gvar (
+   internallength = 16,
+   input = gvar_in,
+   output = gvar_out,
+   receive = gvar_recv,
+   send = gvar_send,
+   alignment = double
+);
+-----------------------------
+-- Using the new type:
+--	user-defined types can be used like ordinary built-in types.
+-----------------------------
+-- eg. we can use it in a table
+CREATE TABLE test_gvar (
+	a	gvar,
+	b	gvar
+);
+-- data for user-defined types are just strings in the proper textual
+-- representation.
+INSERT INTO test_gvar VALUES ('(1.0, 2.5)', '(4.2, 3.55 )');
+INSERT INTO test_gvar VALUES ('(33.0, 51.4)', '(100.42, 93.55)');
+SELECT * FROM test_gvar;
+-----------------------------
+-- Creating an operator for the new type:
+--	Let's define an add operator for gvar types. Since POSTGRES
+--	supports function overloading, we'll use + as the add operator.
+--	(Operator names can be reused with different numbers and types of
+--	arguments.)
+-----------------------------
+-- first, define a artithmetic function gvar_add, gvar_subtract, gvar_multiply,
+-- and gvar_divide (also all defined in gvar.c)
+CREATE FUNCTION gvar_add(gvar, gvar)
+   RETURNS gvar
+   AS '_OBJWD_/gvar'
+   LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION gvar_subtract(gvar, gvar)
+   RETURNS gvar
+   AS '_OBJWD_/gvar'
+   LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION gvar_multiply(gvar, gvar)
+   RETURNS gvar
+   AS '_OBJWD_/gvar'
+   LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION gvar_divide(gvar, gvar)
+   RETURNS gvar
+   AS '_OBJWD_/gvar'
+   LANGUAGE C IMMUTABLE STRICT;
+
+-- we can now define the operator. We show a binary operator here but you
+-- can also define unary operators by omitting either of leftarg or rightarg.
+CREATE OPERATOR + (
+   leftarg = gvar,
+   rightarg = gvar,
+   procedure = gvar_add,
+   commutator = +
+);
+CREATE OPERATOR - (
+   leftarg = gvar,
+   rightarg = gvar,
+   procedure = gvar_subtract
+);
+CREATE OPERATOR * (
+   leftarg = gvar,
+   rightarg = gvar,
+   procedure = gvar_multiply,
+   commutator = *
+);
+CREATE OPERATOR / (
+   leftarg = gvar,
+   rightarg = gvar,
+   procedure = gvar_divide
+);
+SELECT (a + b) AS c FROM test_gvar;
+SELECT (a - b) AS c FROM test_gvar;
+SELECT (a * b) AS c FROM test_gvar;
+SELECT (a / b) AS c FROM test_gvar;
+-- Occasionally, you may find it useful to cast the string to the desired
+-- type explicitly. :: denotes a type cast.
+SELECT  a + '(1.0,1.0)'::gvar AS aa,
+        b + '(1.0,1.0)'::gvar AS bb
+   FROM test_gvar;
+-----------------------------
+-- Creating aggregate functions
+--	you can also define aggregate functions. The syntax is somewhat
+--	cryptic but the idea is to express the aggregate in terms of state
+--	transition functions.
+-----------------------------
+CREATE AGGREGATE gvar_sum (
+   sfunc = gvar_add,
+   basetype = gvar,
+   stype = gvar,
+   initcond = '(0,0)'
+);
+SELECT gvar_sum(a) FROM test_gvar;
+-----------------------------
+-- Interfacing New Types with Indexes:
+--	We cannot define a secondary index (eg. a B-tree) over the new type
+--	yet. We need to create all the required operators and support
+--      functions, then we can make the operator class.
+-----------------------------
+-- first, define the required operators
+CREATE FUNCTION gvar_mean_lt(gvar, gvar) RETURNS bool
+   AS '_OBJWD_/gvar' LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION gvar_mean_le(gvar, gvar) RETURNS bool
+   AS '_OBJWD_/gvar' LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION gvar_mean_eq(gvar, gvar) RETURNS bool
+   AS '_OBJWD_/gvar' LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION gvar_mean_ge(gvar, gvar) RETURNS bool
+   AS '_OBJWD_/gvar' LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION gvar_mean_gt(gvar, gvar) RETURNS bool
+   AS '_OBJWD_/gvar' LANGUAGE C IMMUTABLE STRICT;
+CREATE OPERATOR < (
+   leftarg = gvar, rightarg = gvar, procedure = gvar_mean_lt,
+   commutator = > , negator = >= ,
+   restrict = scalarltsel, join = scalarltjoinsel
+);
+CREATE OPERATOR <= (
+   leftarg = gvar, rightarg = gvar, procedure = gvar_mean_le,
+   commutator = >= , negator = > ,
+   restrict = scalarlesel, join = scalarlejoinsel
+);
+CREATE OPERATOR = (
+   leftarg = gvar, rightarg = gvar, procedure = gvar_mean_eq,
+   commutator = = ,
+   -- leave out negator since we didn't create <> operator
+   -- negator = <> ,
+   restrict = eqsel, join = eqjoinsel
+);
+CREATE OPERATOR >= (
+   leftarg = gvar, rightarg = gvar, procedure = gvar_mean_ge,
+   commutator = <= , negator = < ,
+   restrict = scalargesel, join = scalargejoinsel
+);
+CREATE OPERATOR > (
+   leftarg = gvar, rightarg = gvar, procedure = gvar_mean_gt,
+   commutator = < , negator = <= ,
+   restrict = scalargtsel, join = scalargtjoinsel
+);
+-- create the support function too
+CREATE FUNCTION gvar_mean_cmp(gvar, gvar) RETURNS int4
+   AS '_OBJWD_/gvar' LANGUAGE C IMMUTABLE STRICT;
+-- now we can make the operator class
+CREATE OPERATOR CLASS gvar_mean_ops
+    DEFAULT FOR TYPE gvar USING btree AS
+        OPERATOR        1       < ,
+        OPERATOR        2       <= ,
+        OPERATOR        3       = ,
+        OPERATOR        4       >= ,
+        OPERATOR        5       > ,
+        FUNCTION        1       gvar_mean_cmp(gvar, gvar);
+-- now, we can define a btree index on gvar types. First, let's populate
+-- the table. Note that postgres needs many more tuples to start using the
+-- btree index during selects.
+INSERT INTO test_gvar VALUES ('(56.0,-22.5)', '(-43.2,-0.07)');
+INSERT INTO test_gvar VALUES ('(-91.9,33.6)', '(8.6,3.0)');
+CREATE INDEX test_cplx_ind ON test_gvar
+   USING btree(a gvar_mean_ops);
+SELECT * from test_gvar where a = '(56.0,-22.5)';
+SELECT * from test_gvar where a < '(56.0,-22.5)';
+SELECT * from test_gvar where a > '(56.0,-22.5)';
+-- clean up the example
+DROP TABLE test_gvar;
+DROP TYPE gvar CASCADE;
