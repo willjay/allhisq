@@ -385,7 +385,7 @@ def build_upsert_query(engine, table_name, src_dict, do_update=False):
         """
         pairs = []
         for key, val in uprow.items():
-            pairs.append("{0}={1}".format(key, _for_pgsql(val, types[k])))
+            pairs.append("{0}={1}".format(key, _for_pgsql(val, types[key])))
         return ", ".join(pairs)
 
     # Mirror table from DB
