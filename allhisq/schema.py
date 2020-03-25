@@ -1,7 +1,7 @@
 """
 Makes a minimal set of tables for an analysis database.
 """
-import db_connection as db
+from . import db_connection as db
 
 def main():
 
@@ -1040,7 +1040,158 @@ def main():
         ");"
     )
     
+    taste_splittings = """
+        CREATE TABLE IF NOT EXISTS taste_splitting
+        (
+        taste_splitting_id SERIAL PRIMARY KEY, 
+        ens_id integer REFERENCES ensemble(ens_id),
+        splitting float NOT NULL,     -- e.g., 0.12345
+        splitting_name text NOT NULL, -- e.g., 'Delta5' 
+        units text NOT NULL,            -- e.g., 'lattice' or 'p4s' 
+        UNIQUE(ens_id, splitting_name, units)
+        );"""
+       
+    bootstrap = """
+        CREATE TABLE IF NOT EXISTS bootstrap
+        (
+        boot_id serial PRIMARY KEY,
+        ens_id integer REFERENCES ensemble (ens_id),
+        seed integer NOT NULL,
+        nconfigs integer NOT NULL,
+        nresample integer NOT NULL,
+        UNIQUE(ens_id, seed, nconfigs, nresample)
+        );"""
     
+    bootstrap_draw = """
+        CREATE TABLE IF NOT EXISTS bootstrap_draw
+        (
+        boot_draw_id serial PRIMARY KEY,
+        boot_id integer REFERENCES bootstrap (boot_id),
+        draw_number integer NOT NULL,
+        checksum text NOT NULL,
+        UNIQUE(boot_id, draw_number, checksum)
+        );"""
+
+    bootstrap_result_form_factor = """
+        CREATE TABLE IF NOT EXISTS bootstrap_result_form_factor
+        (
+        boot_result_form_factor_id serial PRIMARY KEY,
+        boot_draw_id integer REFERENCES bootstrap_draw (boot_draw_id),
+        form_factor_id integer REFERENCES form_factor (form_factor_id),
+        result_id integer REFERENCES result_form_factor (id),
+        params text,
+        prior text, 
+        nparams integer,
+        npoints integer,
+        chi2 float,
+        q float,
+        r text,
+        normalization text,
+        calcdate timestamp with time zone,
+        UNIQUE(boot_draw_id, form_factor_id, result_id)
+        );"""
+        
+    form_factor_signs = """
+        CREATE TABLE IF NOT EXISTS sign_form_factor
+        (
+        sign_id serial PRIMARY KEY, 
+        ens_id integer REFERENCES ensemble (ens_id),
+        spin_taste_current text,
+        sign integer,
+        UNIQUE(ens_id, spin_taste_current)
+        );"""
+    
+    bootstrap_status_form_factor = """
+        CREATE TABLE IF NOT EXISTS bootstrap_status_form_factor
+        (
+        boot_status_form_factor_id serial PRIMARY KEY,
+        form_factor_id integer REFERENCES form_factor (form_factor_id),
+        boot_id integer REFERENCES bootstrap (boot_id),
+        boot_draw_id integer REFERENCES bootstrap_draw (boot_draw_id),
+        status text NOT NULL default 'pending', -- pending / success / failure
+        UNIQUE(form_factor_id, boot_id, boot_draw_id)
+        );"""
+         
+    bootstrap_summary_form_factor = """
+        create view bootstrap_summary_form_factor as
+        (
+        select 
+            form_factor_id, 
+            boot_id,
+            COALESCE(nsuccess, 0) as nsucess, 
+            COALESCE(nfailure, 0) as nfailure,
+            COALESCE(npending, 0) as npending,
+            COALESCE(nsuccess, 0) 
+            + COALESCE(nfailure, 0) 
+            + COALESCE(npending, 0) as ntotal
+        from
+        (
+            select form_factor_id, boot_id, count(*) as nsuccess
+            from bootstrap_status_form_factor
+            where status = 'success'
+            group by(form_factor_id, boot_id)
+        ) as success
+        full join
+        (
+            select form_factor_id, boot_id, count(*) as nfailure
+            from bootstrap_status_form_factor
+            where status = 'failure'
+            group by(form_factor_id, boot_id)
+        ) as failure using(form_factor_id, boot_id)
+        full join
+        (
+            select form_factor_id, boot_id, count(*) as npending
+            from bootstrap_status_form_factor
+            where status = 'pending'
+            group by(form_factor_id, boot_id)
+        ) as pending using(form_factor_id, boot_id)
+        );"""
+    
+    form_factor_name = """
+        CREATE TABLE IF NOT EXISTS form_factor_name
+        (
+        form_factor_name_id serial primary key,
+        spin_taste_current text not null,
+        name text not null,
+        UNIQUE(spin_taste_current, name)
+        );"""
+
+    form_factor_grouping = """
+        CREATE VIEW form_factor_grouping AS (
+        SELECT
+        ens_id, form_factor_id, form_factor_name.name, momentum,
+        process, alias_light, alias_spectator, alias_heavy
+        FROM form_factor
+        JOIN form_factor_name USING(spin_taste_current)
+        JOIN transition_name USING(form_factor_id)
+        JOIN alias_form_factor USING(form_factor_id)
+        JOIN ensemble USING(ens_id)
+        );"""    
+    
+    noise_threshy = """
+        CREATE TABLE IF NOT EXISTS form_factor_noise_threshy (
+        noise_id serial primary key,
+        form_factor_id integer REFERENCES form_factor (form_factor_id),
+        noise_threshy float,
+        UNIQUE(form_factor_id)
+        );"""
+    
+    lec_slope_mu = """
+        CREATE TABLE IF NOT EXISTS lec_slope_mu (
+        lec_id serial primary key,
+        ens_id integer REFERENCES ensemble (ens_id),
+        mu text NOT NULL,
+        UNIQUE(ens_id)
+        );"""
+   
+    form_factor_systematic = """
+        CREATE TABLE IF NOT EXISTS form_factor_systematic (
+        systematic_id serial primary key,
+        form_factor_id integer REFERENCES form_factor (form_factor_id),
+        systematic float NOT NULL,
+        UNIQUE(form_factor_id)
+        );"""
+
     engine = db.make_engine()
 
     queries = [
@@ -1095,7 +1246,15 @@ def main():
 #        fastfit,
 #         corr_diagnostic,
 #         corr_sign_flip,
-        form_factor_r_guess
+#         form_factor_r_guess,
+#         taste_splitting,
+#         bootstrap,
+#         bootstrap_draw,
+#         bootstrap_result_form_factor,
+#         form_factor_signs,
+#         bootstrap_status_form_factor
+#         lec_slope_mu,
+        form_factor_systematic
     ]
     for query in queries:
         print(query)
