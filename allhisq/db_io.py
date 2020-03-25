@@ -2,6 +2,7 @@
 Read and write functions for interacting with a database.
 """
 import logging
+import collections
 import ast
 import pandas as pd
 import gvar as gv
@@ -29,6 +30,135 @@ def adapt_numpy_int64(numpy_int64):
 
 
 register_adapter(np.int64, adapt_numpy_int64)
+
+
+def reshape_params(params, nstates):
+    """
+    Reshapes arrays of amplitudes which may have been flattened.
+    Args:
+        params: dict with keys 'Vnn', 'Vno', 'Von', 'Voo'
+        nstates: namedtuple with field names 'n', 'no', 'm', 'mo'
+    Returns:
+        params: dict with reshaped values
+    """
+    params['Vnn'] = params['Vnn'].reshape(nstates.n, nstates.m)
+    params['Vno'] = params['Vno'].reshape(nstates.n, nstates.mo)
+    params['Von'] = params['Von'].reshape(nstates.no, nstates.m)
+    params['Voo'] = params['Voo'].reshape(nstates.no, nstates.mo)
+    for key in ['fluctuation', 'log(fluctuation)']:
+        if key in params:
+            # unpack singleton arrays
+            params[key] = params[key].item()
+    return params
+
+
+def get_best_fit_information(engine, form_factor_id):
+    """
+    Gets a dict of best-fit information from the database regarding
+    the specified form factor. Also gets some "meta" information like
+    the associated momentum, current, and lattice size.
+    Args:
+        form_factor_id: int, the unique id for the form factor
+    Returns:
+        best_fit: dict with the best-fit information
+    """
+    Nstates = collections.namedtuple(
+        'NStates', ['n', 'no', 'm', 'mo'], defaults=(1, 0, 0, 0)
+    )
+    
+    def _float_or_none(astr):
+        if astr is None:
+            return None
+        if (astr.lower() == 'nan') or (astr.lower() == 'none'):
+            return None
+        return float(astr)
+
+    query = f"""
+        select
+            campaign.form_factor_id,
+            ens.ens_id,
+            ens.ns,
+            form_factor.momentum,
+            form_factor.spin_taste_current,
+            result_id,
+            n_decay_ll as n,
+            n_oscillating_ll as "no",
+            n_decay_hl as m,
+            n_oscillating_hl as mo,
+            tmin_ll as tmin_src,
+            tmax_ll as tmax_src,
+            tmin_hl as tmin_snk,
+            tmax_hl as tmax_snk,
+            binsize,
+            shrinkage,
+            fold as do_fold,
+            sign,
+            pedestal,
+            params
+        from campaign_form_factor as campaign
+        join form_factor using(form_factor_id)
+        join ensemble as ens using(ens_id)
+        join sign_form_factor using(ens_id, spin_taste_current)
+        join result_form_factor as result
+        on  (result.form_factor_id = campaign.form_factor_id) and
+            (result.id = campaign.result_id)
+        join analysis_form_factor as analysis
+        on  (analysis.analysis_id = result.analysis_id)
+        join reduction_form_factor as reduction
+        on  (reduction.reduction_id = result.reduction_id)
+        where
+        campaign.form_factor_id in ({form_factor_id});"""
+
+    best_fit = pd.read_sql_query(query, engine)
+    best_fit['params'] = best_fit['params'].apply(parse_string_dict)
+    best_fit['pedestal'] = best_fit['pedestal'].apply(_float_or_none)
+    best_fit['nstates'] = best_fit[['n', 'no', 'm', 'mo']].apply(
+        lambda args: Nstates(*args), axis=1)
+    best_fit['params'] = best_fit[['params', 'nstates']].apply(
+        lambda pair: reshape_params(*pair), axis=1)
+    best_fit, = best_fit.to_dict('records')  # Unpack single entry
+    return best_fit
+
+
+def get_glance_data(form_factor_id, engine, apply_alias=True):
+    """
+    Reads all the required correlators for analyzing the specified
+    form factor from the table "glance_correlator_n_point". The data
+    from this table lacks any information about correlations and usually
+    only employs partial statistics (often having restricted to 'fine'
+    solves only). However, such data serves a useful cache of partial
+    results for quick, informal analyses.
+    Args:
+        form_factor_id: int, the id from the database
+        engines: the database connection engine
+    Returns:
+        data: dict with the data as arrays
+    """
+    query = f"""
+        select
+        form_factor.form_factor_id,
+        rtrim(name, '-_fine') as basename,
+        glance_correlator_n_point.data
+        from form_factor
+        join junction_form_factor using(form_factor_id)
+        join correlator_n_point using(corr_id)
+        join glance_correlator_n_point using(corr_id)
+        where
+        (nconfigs > 100) and
+        not ((corr_type != 'three-point') and (name like 'A4-A4%%'))
+        and (form_factor_id = {form_factor_id});"""
+    dataframe = pd.read_sql_query(query, engine)    
+    basenames = dataframe['basename'].values
+    data = {}
+    for _, row in dataframe.iterrows():
+        key = row['basename']
+        data[key] = parse_string(row['data'])
+    if apply_alias:
+        aliases = alias.get_aliases(basenames)
+        aliases = alias.apply_naming_convention(aliases)
+        for basename in basenames:
+            data[aliases[basename]] = data.pop(basename)        
+    return data
 
 
 def get_form_factor_data(form_factor_id, engines, apply_alias=True):
@@ -82,6 +212,21 @@ def to_text(adict):
         new_dict[key] = str(val)
     return '$delim${{{0}}}$delim$'.format(str(new_dict))
 
+
+def rebuild_params(params, nstates):
+    """
+    Reshapes arrays of amplitudes which may have been flattened.
+    Args:
+        params: dict with keys 'Vnn', 'Vno', 'Von', 'Voo'
+        nstates: namedtuple with field names 'n', 'no', 'm', 'mo'
+    Returns:
+        params: dict with reshaped values
+    """  
+    params['Vnn'] = params['Vnn'].reshape(nstates.n, nstates.m)
+    params['Vno'] = params['Vno'].reshape(nstates.n, nstates.mo)
+    params['Von'] = params['Von'].reshape(nstates.no, nstates.m)
+    params['Voo'] = params['Voo'].reshape(nstates.no, nstates.mo)
+    return params
 
 def parse_string_dict(dict_as_string):
     """
