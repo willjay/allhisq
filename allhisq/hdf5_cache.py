@@ -116,7 +116,10 @@ def tsm_single_config(dataframe):
     """
     for col in ['fine', 'loose']:
         if col not in dataframe.columns:
-            msg = "DataFrame must have column {0} for tsm.".format(col)
+            msg = (
+                "DataFrame must have column {0} for tsm. \n"
+                "Columns present: {1}".format(col, dataframe.columns)
+            )
             raise KeyError(msg)
 
     # Isolate the single measurement with a fine solve
