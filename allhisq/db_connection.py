@@ -12,7 +12,7 @@ def get_engines():
     various external databases.
     """
     # Engine for analysis database
-    engines = {'postgres': make_engine(NEED_PASSWORD=False)}
+    engines = {'postgres': make_engine()}
 
     # Get locations of external databases
     query = """
