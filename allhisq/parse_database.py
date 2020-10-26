@@ -58,7 +58,7 @@ def main():
         df_meta = pd.read_sql(query.statement, session.bind)
 
     # Wrangle parameters into normalized metadata
-    df_meta = wrangle(df_meta)
+    df_meta = wrangle(df_meta)  #, two_point_prefix="A4-A4_RW_RW")
     mask = ~df_meta['name'].isin(existing['name'].values)
     new = df_meta[mask]
     new['ens_id'] = ens_id
@@ -76,6 +76,9 @@ def extract_nsnt(nsnt):
     if (len(nsnt) == 4) or (len(nsnt) == 5):
         ns = int(nsnt[:2])
         nt = int(nsnt[2:])
+    elif len(nsnt) == 6:
+        ns = int(nsnt[:3])
+        nt = int(nsnt[3:])
     else:
         raise ValueError(
             "Unrecognized 'nsnt' with length {0}".format(
@@ -110,12 +113,10 @@ def register_correlator(engine_pg, record, CentralBase):
         meta_corr = MetaDataCorr(**sanitize_record(record, MetaDataCorr))
         session.add(meta_corr)
         session.flush()
-
         if record['has_sequential']:
             record['meta_correlator_id'] = meta_corr.meta_correlator_id
             meta_seq = MetaDataSeq(**sanitize_record(record, MetaDataSeq))
             session.add(meta_seq)
-
 
 def register_ensemble(engine_pg, vals, CentralBase):
     """Registers a new external db in the central db."""
@@ -173,7 +174,7 @@ def parse_db_name(db_full_path):
     if not match:
         # try again with for alternative file structure include 'redo'
         regex = re.compile(
-            r'^(l\d+)(f\d+)(b\d+)(m\d+)(m\d+)(m\d+)\-(allHISQ)\-(redo)\.(sqlite)$')
+            r'^(l\d+)(f\d+)(b\d+)(m\d+)(m\d+)(m\d+)\-(allHISQ)\-(fix|build|redo|run\d+)\.(sqlite)$')
         match = re.search(regex, name)
         suffix_idx = 9
         if not match:
@@ -250,7 +251,10 @@ def unpackage_antiquark_sink_ops(df_meta):
       'momentum_twist': [0.0, 0.0, 0.0],
       'operation': 'ks_inverse'}]
     """
-    # Check for presence of a sequential propagator
+    # Note: if the code bombs here, make sure the correct value for 
+    # "two_point_prefix" is chosen when calling wrangle. Otherwise the example
+    # dictionary might be two-point function, which indeed does not contain the
+    # needed 'antiquark_sink_ops'.
     df_meta['has_sequential'] = df_meta['antiquark_sink_ops'].apply(bool)
     mask = df_meta['has_sequential']
 
