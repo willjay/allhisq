@@ -96,7 +96,7 @@ def make_engine(db_choice):
     return sqla.create_engine(url.format(**settings), echo=False)
 
 
-def tsm_single_config(dataframe):
+def tsm_single_config(dataframe, loose_only=False):
     """
     Combine "loose" and "fine" solves for a single configuration
     according to the so-called truncated solver method (TSM):
@@ -121,6 +121,11 @@ def tsm_single_config(dataframe):
                 "Columns present: {1}".format(col, dataframe.columns)
             )
             raise KeyError(msg)
+    
+    if loose_only:
+        loose_full = np.array(list(dataframe['loose'].dropna().apply(np.array)))
+        average = np.mean(loose_full, axis=0)
+        return average, None
 
     # Isolate the single measurement with a fine solve
     mask = ~dataframe['fine'].isna()
@@ -378,8 +383,14 @@ class CachedData(np.ndarray):
         self.attrs = getattr(obj, 'attrs', None)
 
 
-def get_correlator(engine, basename):
-    """ Gets a correlator from the cache."""
+def get_correlator(engine, basename, recache=False):
+    """
+    Gets a correlator from the cache.
+    Args: 
+        engine: database connetion engine
+        baesname: str, the name of the correlator (no suffix 'loose' or 'fine')
+        recache: bool, whether to re-write the data to cache. Default is False.
+    """
     h5fname = default_cache_name(engine)
     if basename.endswith('loose') or basename.endswith('fine'):
         raise ValueError(
@@ -390,7 +401,14 @@ def get_correlator(engine, basename):
         input_db = engine.url.database
         interface = ReductionInterface(input_db, h5fname)
         interface.process_data(basename=basename)
-    # Grab the correaltor
+    elif recache:
+        # Rewrite the data into the cache.
+        # Useful, e.g, when new data has been added to the database.
+        LOGGER.info('Re-caching correlator %s', basename)
+        input_db = engine.url.database
+        interface = ReductionInterface(input_db, h5fname)
+        interface.process_data(basename=basename)
+    # Grab the correaltor from the cache
     with h5py.File(h5fname, 'r') as ifile:
         dset = ifile['data'][basename]
         arr = CachedData(dset)
