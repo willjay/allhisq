@@ -1,5 +1,6 @@
 """
-doc here
+Routines for reading correlators direclty from SQLite files and applying the
+truncated solver method. Useful for temporarily bypassing the HDF5 caches.
 """
 import pandas as pd
 from . import hdf5_cache as hdf5
