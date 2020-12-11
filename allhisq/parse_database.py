@@ -1,8 +1,8 @@
 """
-A simple utility for parsing sqlite databases into the central postgres analysis 
+A simple utility for parsing sqlite databases into the central postgres analysis
 database. If the database is not previously known, this script registers its
-location, lattice spacing (inferred from the database name), and the names of 
-its correlation functions. This script then parses the metadata (which is 
+location, lattice spacing (inferred from the database name), and the names of
+its correlation functions. This script then parses the metadata (which is
 typically NOT normalized). This script normalizes the metadata before writing to
 the central database. For example, see the function 'wrangle' below.
 """
@@ -17,15 +17,21 @@ from . import db_connection as db
 
 def main():
     """
-    Parses a database, including location, lattice spacing, the names of the 
+    Parses a database, including location, lattice spacing, the names of the
     correlation functions, and their associated metedata.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("db", type=str,
                         help="input database including full path")
+    # Common choices for c2prefix include
+    parser.add_argument("c2prefix", type=str, default="P5-P5_RW",
+                        help="prefix for 2pt correlators")
     args = parser.parse_args()
     input_db = args.db
     db_info = parse_db_name(input_db)
+    two_point_prefix = args.c2prefix
+    print("Common choices for c2prefix include 'A4-A4_RW_RW' and 'P5-P5_RW'.")
+    print(f"Using c2prefix = {two_point_prefix}.")
 
     # Reflect schema from central database
     engines = db.get_engines()
@@ -58,7 +64,7 @@ def main():
         df_meta = pd.read_sql(query.statement, session.bind)
 
     # Wrangle parameters into normalized metadata
-    df_meta = wrangle(df_meta)
+    df_meta = wrangle(df_meta, two_point_prefix=two_point_prefix)
     mask = ~df_meta['name'].isin(existing['name'].values)
     new = df_meta[mask]
     new['ens_id'] = ens_id
@@ -76,6 +82,9 @@ def extract_nsnt(nsnt):
     if (len(nsnt) == 4) or (len(nsnt) == 5):
         ns = int(nsnt[:2])
         nt = int(nsnt[2:])
+    elif len(nsnt) == 6:
+        ns = int(nsnt[:3])
+        nt = int(nsnt[3:])
     else:
         raise ValueError(
             "Unrecognized 'nsnt' with length {0}".format(
@@ -110,12 +119,10 @@ def register_correlator(engine_pg, record, CentralBase):
         meta_corr = MetaDataCorr(**sanitize_record(record, MetaDataCorr))
         session.add(meta_corr)
         session.flush()
-
         if record['has_sequential']:
             record['meta_correlator_id'] = meta_corr.meta_correlator_id
             meta_seq = MetaDataSeq(**sanitize_record(record, MetaDataSeq))
             session.add(meta_seq)
-
 
 def register_ensemble(engine_pg, vals, CentralBase):
     """Registers a new external db in the central db."""
@@ -173,7 +180,7 @@ def parse_db_name(db_full_path):
     if not match:
         # try again with for alternative file structure include 'redo'
         regex = re.compile(
-            r'^(l\d+)(f\d+)(b\d+)(m\d+)(m\d+)(m\d+)\-(allHISQ)\-(redo)\.(sqlite)$')
+            r'^(l\d+)(f\d+)(b\d+)(m\d+)(m\d+)(m\d+)\-(allHISQ)\-(fix|build|redo|run\d+)\.(sqlite)$')
         match = re.search(regex, name)
         suffix_idx = 9
         if not match:
@@ -250,7 +257,10 @@ def unpackage_antiquark_sink_ops(df_meta):
       'momentum_twist': [0.0, 0.0, 0.0],
       'operation': 'ks_inverse'}]
     """
-    # Check for presence of a sequential propagator
+    # Note: if the code bombs here, make sure the correct value for
+    # "two_point_prefix" is chosen when calling wrangle. Otherwise the example
+    # dictionary might be two-point function, which indeed does not contain the
+    # needed 'antiquark_sink_ops'.
     df_meta['has_sequential'] = df_meta['antiquark_sink_ops'].apply(bool)
     mask = df_meta['has_sequential']
 
