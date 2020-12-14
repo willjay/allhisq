@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import sqlalchemy as sqla
 import h5py
+import shutil
 from . import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -298,8 +299,8 @@ class ReductionInterface(object):
 
     def __iter__(self):
         """ Reads and reduces pending data """
-        for basename, subdf in self.pending.groupby('basename'):
-            LOGGER.info('INFO: starting %s', basename)
+        for idx, (basename, subdf) in enumerate(self.pending.groupby('basename')):
+            LOGGER.info('INFO: starting %s %s', idx, basename)
             LOGGER.info('TIMESTAMP: %s', datetime.datetime.now().isoformat())
             data = self.read_data(subdf['correlator_id'].values)
             data = unpackage(data)
@@ -327,11 +328,18 @@ class ReductionInterface(object):
         """Reads the data, processes it, and writes to the HDF5 file."""
         # Run through all the data
         if basename is None:
-            for data in self.__iter__():
+            for idx, data in enumerate(self.__iter__()):
                 with h5py.File(self.h5fname) as ofile:
                     write_hdf5(ofile, data)
                     ofile.flush()
                     ofile.close()
+                # To aid recovery from failures (and possible file corruptions)
+                # make a backup version every so often.
+                # 500 is arbitrary.
+                if (idx % 500) == 0:
+                    LOGGER.info('BACKUP: copying results to backup file.')
+                    backup = f"{self.h5fname}.bak"
+                    shutil.copy(self.h5fname, backup)
         else:
             data = self.process_basename(basename)
             with h5py.File(self.h5fname) as ofile:
