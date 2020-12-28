@@ -9,11 +9,11 @@ import bz2
 import logging
 import os
 import argparse
+import shutil
 import numpy as np
 import pandas as pd
 import sqlalchemy as sqla
 import h5py
-import shutil
 from . import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -118,11 +118,11 @@ def tsm_single_config(dataframe, loose_only=False):
     for col in ['fine', 'loose']:
         if col not in dataframe.columns:
             msg = (
-                "DataFrame must have column {0} for tsm. \n"
+                "TSM_SINGLE_CONFIG: DataFrame must have column {0} for tsm. \n"
                 "Columns present: {1}".format(col, dataframe.columns)
             )
             raise KeyError(msg)
-    
+
     if loose_only:
         loose_full = np.array(list(dataframe['loose'].dropna().apply(np.array)))
         average = np.mean(loose_full, axis=0)
@@ -134,9 +134,21 @@ def tsm_single_config(dataframe, loose_only=False):
     # Compare the difference between the fine and loose solve
     # to yield a measurement of the bias introduced by the
     # loose solve
-    fine_control = np.array(dataframe[mask]['fine'].item())
-    loose_control = np.array(dataframe[mask]['loose'].item())
-    bias_correction = fine_control - loose_control
+    nfine = len(dataframe[mask]['fine'])
+    nloose = len(dataframe[mask]['loose'])
+    if nfine != nloose:
+        LOGGER.error("TSM: Invalid solves nfine %s, nloose %s", nfine, nloose)
+        raise ValueError("Invalide solves encountered.")
+    if nfine > 1:
+        LOGGER.info("TSM: averaging bias from nfine %s solves.", nfine)
+        fine_control = dataframe[mask]['fine'].apply(np.asarray)
+        loose_control = dataframe[mask]['loose'].apply(np.asarray)
+        bias_correction = (fine_control - loose_control).values
+        bias_correction = np.mean(np.vstack(bias_correction), axis=0)
+    else:
+        fine_control = np.array(dataframe[mask]['fine'].item())
+        loose_control = np.array(dataframe[mask]['loose'].item())
+        bias_correction = fine_control - loose_control
 
     # Average results of the loose solve from
     # different "tsrc" on each timeslice
@@ -167,14 +179,22 @@ def tsm(data):
         # Combine 'fine' and 'loose' solves using tsm
         to_combine = subdf.pivot(
             index='tsrc', columns='solve_type', values='data')
-        data_tsm, bias_correction = tsm_single_config(to_combine)
-        reduced.append({
-            'series': series,
-            'trajectory': trajectory,
-            'data': data_tsm,
-            'bias_correction': bias_correction,
-            'n_tsrc': len(subdf['tsrc'].unique()),
-        })
+        try:
+            data_tsm, bias_correction = tsm_single_config(to_combine)
+            reduced.append({
+                'series': series,
+                'trajectory': trajectory,
+                'data': data_tsm,
+                'bias_correction': bias_correction,
+                'n_tsrc': len(subdf['tsrc'].unique()),
+            })
+        except KeyError as err:
+            if "TSM_SINGLE_CONFIG" in str(err):
+                LOGGER.info(
+                    "TSM: missing fine/loose pair series %s trajectory %s",
+                    series, trajectory)
+            else:
+                raise err
     return pd.DataFrame(reduced)
 
 
@@ -337,8 +357,8 @@ class ReductionInterface(object):
                 # make a backup version every so often.
                 # 500 is arbitrary.
                 if (idx % 500) == 0:
-                    LOGGER.info('BACKUP: copying results to backup file.')
                     backup = f"{self.h5fname}.bak"
+                    LOGGER.info('BACKUP: copying results to %s', backup)
                     shutil.copy(self.h5fname, backup)
         else:
             data = self.process_basename(basename)
