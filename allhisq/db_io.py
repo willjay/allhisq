@@ -161,6 +161,57 @@ def get_glance_data(form_factor_id, engine, apply_alias=True):
     return data
 
 
+def sanitize_data(data):
+    """
+    Sanitizes data, removing NaNs.
+    Args:
+        data: dict, with array-like values
+    Returns:
+        data: dict, with array-like values with all rows containing NaNs removed
+        nan_configs: set, the rows numbers where NaNs were encountered
+    """
+    # Locate rows with NaNs
+    nan_rows = {locate_nan_rows(data[key]) for key in data}
+
+    # When no NaNs are found, the data are already sanitized
+    if not nan_rows:
+        return data, nan_rows
+
+    # Multiple distinct sets of rows with NaNs encountered
+    if len(nan_rows) > 1:
+        raise ValueError("Unable to sanitize data consistenly removing NaNs.")
+
+    # Remove the NaNs
+    keys = list(data.keys())
+    for key in keys:
+        data[key] = remove_nans(data.pop(key))
+
+    # Verify that resulting data are consistenly shaped
+    distinct_shapes = {val.shape for val in data.values()}
+    if len(distinct_shapes) != 1:
+        raise ValueError("Removing NaNs produced inconsistenly shaped data.")
+
+    nan_rows, = nan_rows
+    return data, nan_rows
+
+
+def locate_nan_rows(arr):
+    """Locates rows in which NaNs appear."""
+    # Count the number of NaNs in each row
+    nan_counts = np.sum(~np.isfinite(arr), axis=1)
+    # Trigger on a NaN appearing anywhere in a line/row
+    nans, = np.where(nan_counts > 1)
+    return frozenset(nans)
+
+
+def remove_nans(arr):
+    """Removes NaNs from an array."""
+    # Remove NaNs
+    _, nt = arr.shape
+    mask = np.isfinite(arr)
+    return arr[mask].reshape(-1, nt)
+
+
 def get_form_factor_data(form_factor_id, engines, apply_alias=True):
     """
     Reads all the required correlators for analyzing the specified form factor.
@@ -190,6 +241,10 @@ def get_form_factor_data(form_factor_id, engines, apply_alias=True):
         aliases = alias.apply_naming_convention(aliases)
         for basename in basenames:
             data[aliases[basename]] = data.pop(basename)
+    data, nan_rows = sanitize_data(data)
+    if nan_rows:
+        LOGGER.warning(
+            "WARNING: NaN rows encountered while sanitizing data %s", nan_rows)
     return data
 
 
