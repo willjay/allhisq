@@ -11,6 +11,7 @@ import sqlalchemy as sqla
 from psycopg2.extensions import register_adapter, AsIs
 from . import alias
 from . import hdf5_cache
+from . import cuts
 
 LOGGER = logging.getLogger(__name__)
 
@@ -160,6 +161,23 @@ def get_glance_data(form_factor_id, engine, apply_alias=True):
             data[aliases[basename]] = data.pop(basename)        
     return data
 
+def fix_signs(data):
+    """
+    For reasons which remain mysterious, sometimes 3pt functions
+    have a funny minus-sign issue where the global sign of the correlator
+    seems to flip on every other configuration [1, -1, 1, -1, ...].
+    This problem seems mostly to afflict the currents S-S and V4-V4.
+    for a=0.057 fm.
+    
+    As a quick fix, this function simply flips all the signs to be positive.
+    """
+    for key in data.keys():
+        if not isinstance(key, int):
+            continue
+        data[key] = np.sign(data[key]) * data[key]
+    return data
+
+
 
 def sanitize_data(data):
     """
@@ -212,7 +230,7 @@ def remove_nans(arr):
     return arr[mask].reshape(-1, nt)
 
 
-def get_form_factor_data(form_factor_id, engines, apply_alias=True):
+def get_form_factor_data(form_factor_id, engines, apply_alias=True, sanitize=True):
     """
     Reads all the required correlators for analyzing the specified form factor.
     Args:
@@ -234,17 +252,27 @@ def get_form_factor_data(form_factor_id, engines, apply_alias=True):
     basenames = [name for name in basenames if not
                  (alias.match_2pt(name) and name.startswith('A4-A4'))]
     data = {}
+    # ens_id = 28 corresponds to the physical-mass a=0.057 fm ensemble.
+    # This ensemble has a bug with odd-source TSM data and requires applying a
+    # cut to the Monte Carlo history in order to obtain correct results.
+    if ens_id == 28:
+        LOGGER.warning((
+            "WARNING: Applying cut to retain only even-source TSM solves. "
+            f"ens_id={ens_id}"))
+        get_correlator = cuts.get_correlator
+    else:
+        get_correlator = hdf5_cache.get_correlator
     for basename in basenames:
-        data[basename] = hdf5_cache.get_correlator(engines[ens_id], basename)
+        data[basename] = get_correlator(engines[ens_id], basename)
     if apply_alias:
         aliases = alias.get_aliases(basenames)
         aliases = alias.apply_naming_convention(aliases)
         for basename in basenames:
             data[aliases[basename]] = data.pop(basename)
-    data, nan_rows = sanitize_data(data)
-    if nan_rows:
-        LOGGER.warning(
-            "WARNING: NaN rows encountered while sanitizing data %s", nan_rows)
+    if sanitize:
+        data, nan_rows = sanitize_data(data)
+        if nan_rows:
+            LOGGER.warning("WARNING: NaNs found while sanitizing: %s", nan_rows)
     return data
 
 
