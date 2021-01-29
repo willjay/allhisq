@@ -15,6 +15,7 @@ import pandas as pd
 import sqlalchemy as sqla
 import h5py
 from . import utils
+from . import alias
 
 LOGGER = logging.getLogger(__name__)
 
@@ -441,6 +442,34 @@ def get_correlator(engine, basename, recache=False):
         dset = ifile['data'][basename]
         arr = CachedData(dset)
     return arr
+
+@utils.timing
+def get_pre_tsm_raw_data(basename, engine):
+    """
+    Gets "pre-tsm" raw data from a database.
+    Args:
+        basename: str, correlator name without suffix 'fine' or 'loose'
+        engine: database connection engine
+    """
+    # Verify input basename
+    if basename.endswith('loose') or basename.endswith('fine'):
+        raise ValueError((
+            "basename must end with suffix 'loose' or 'fine'. "
+            f"basename: {basename}"))
+    if (not alias.match_2pt(basename)) and (not alias.match_3pt(basename)):
+        raise ValueError((
+            "basename is unrecognized as a valid 2pt or 3pt function. "
+            f"basename: {basename}"))
+
+    query = """
+        SELECT correlators.name, data.*  FROM correlators
+        JOIN data ON correlators.id = data.correlator_id
+        WHERE correlator_id IN 
+        (SELECT id FROM correlators WHERE name LIKE '{basename}%%');
+        """.format(basename=basename)
+    data_raw = pd.read_sql_query(query, engine)
+    data_raw = unpackage(data_raw)
+    return data_raw
 
 
 if __name__ == '__main__':
