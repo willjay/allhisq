@@ -454,7 +454,7 @@ def get_pre_tsm_raw_data(basename, engine):
     # Verify input basename
     if basename.endswith('loose') or basename.endswith('fine'):
         raise ValueError((
-            "basename must end with suffix 'loose' or 'fine'. "
+            "basename must not end with suffix 'loose' or 'fine'. "
             f"basename: {basename}"))
     if (not alias.match_2pt(basename)) and (not alias.match_3pt(basename)):
         raise ValueError((
