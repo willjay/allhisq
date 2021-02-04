@@ -1192,6 +1192,46 @@ def main():
         UNIQUE(form_factor_id)
         );"""
 
+    two_point_materialized = """
+        CREATE MATERIALIZED VIEW two_point_materialized AS (
+        SELECT
+            corr.ens_id,
+            corr.corr_id,
+            corr.name,
+            GREATEST(meta.quark_mass, meta.antiquark_mass) AS m_heavy,
+            LEAST(meta.quark_mass, meta.antiquark_mass) AS m_light,
+            split_part(meta.momentum, '-'::text, 1) AS momentum
+        FROM correlator_n_point corr
+        JOIN meta_data_correlator meta ON (corr.name = meta.correlator_key) AND (corr.ens_id = meta.ens_id)
+        WHERE meta.has_sequential = false);"""
+
+    three_point_materialized = """
+        CREATE MATERIALIZED VIEW three_point_materialized AS (
+            SELECT
+                corr.ens_id,
+                corr.corr_id,
+                corr.name,
+                -- Currents -- 
+                split_part(meta.correlator, '_'::text, 1) AS spin_taste_sink,
+                split_part(meta.correlator, '_'::text, 2) AS spin_taste_current,
+                -- Masses --
+                GREATEST(meta.quark_mass, meta_seq.mass) AS m_heavy,
+                LEAST(meta.quark_mass, meta_seq.mass)    AS m_light,
+                meta.antiquark_mass                      AS m_spectator,
+                meta_seq.mass                            AS m_sink_to_current,
+                meta.quark_mass                          AS m_source_to_current,
+                -- Momentum -- 
+                split_part(meta.momentum, '-'::text, 1) AS momentum,
+                -- Sink time T --
+                CAST(TRIM(LEADING 'T' FROM split_part(corr.name, '_'::text, 3)) AS integer) AS t_sink,
+                -- Checking the sink time T from the meta data -- 
+                CAST(TRIM(LEADING 'T' FROM split_part(corr.name, '_'::text, 3)) AS integer) = meta_seq.t0 - meta.quark_source_origin[4] AS t_sink_verify
+            FROM correlator_n_point AS corr
+            JOIN meta_data_correlator AS meta ON meta.correlator_key = corr.name AND meta.ens_id = corr.ens_id
+            JOIN meta_data_sequential AS meta_seq ON meta_seq.meta_correlator_id = meta.meta_correlator_id
+            WHERE meta.has_sequential = true
+        );"""
+        
     engine = db.make_engine()
 
     queries = [
