@@ -90,7 +90,8 @@ def is_sink(corr2, corr3):
     mass_triplet = corr3['mass_triplet']
     mass_agrees = (corr2['masses'] == set((mass_triplet.snk, mass_triplet.spec)))
     momentum_agrees = (corr2['momentum'] == 'p000')
-    return mass_agrees and momentum_agrees
+    operator_agrees = corr2['gamma_src_snk'] == corr3['gamma_src_snk']
+    return mass_agrees and momentum_agrees and operator_agrees
 
 
 def is_source(corr2, corr3):
@@ -149,28 +150,12 @@ def get_aliases(basenames):
         if corr2:
             two_points.append(corr2)
 
-    # Ensure that the two-point functions have the correct structure
-    # to match the source and sink structure of the three-point functions
-    if len(two_points) == 1:
-        corr2, = two_points  # pylint: disable=unbalanced-tuple-unpacking
-        if is_sink(corr2, corr3) and is_source(corr2, corr3):
-            aliases[corr2['basename']] = 'source and sink'
-        else:
-            raise ValueError(
-                "Two-point functions did not match three-point functions.")
-    elif len(two_points) == 2:
-        if is_sink(two_points[0], corr3) and is_source(two_points[1], corr3):
-            aliases[two_points[0]['basename']] = 'sink'
-            aliases[two_points[1]['basename']] = 'source'
-        elif is_sink(two_points[1], corr3) and is_source(two_points[0], corr3):
-            aliases[two_points[0]['basename']] = 'source'
-            aliases[two_points[1]['basename']] = 'sink'
-        else:
-            raise ValueError(
-                "Two-point functions did not match three-point functions.")
-    else:
-        raise ValueError(
-            "Excepected 2 two-point functions, found %d." % len(two_points))
+    # Isoalte the two-point functions associated with the source and sink
+    source, = [corr2 for corr2 in two_points if is_source(corr2, corr3)]
+    sink, = [corr2 for corr2 in two_points if is_sink(corr2, corr3)]
+    aliases[source['basename']] = 'source'
+    aliases[sink['basename']] = 'sink'
+
     return aliases
 
 
