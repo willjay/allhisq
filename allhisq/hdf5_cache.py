@@ -113,6 +113,8 @@ def tsm_single_config(dataframe, loose_only=False):
     >>> tsm_single_config(input_df)
     Args:
         df: DataFrame with columns 'fine' and 'loose'.
+        loose_only: bool, whether to get the average value of the loose solves
+             only. Default is False.
     Returns:
         array, the combined data
     """
@@ -412,13 +414,15 @@ class CachedData(np.ndarray):
         self.attrs = getattr(obj, 'attrs', None)
 
 
-def get_correlator(engine, basename, recache=False):
+def get_correlator(engine, basename):
     """
     Gets a correlator from the cache.
-    Args: 
+    Args:
         engine: database connetion engine
         baesname: str, the name of the correlator (no suffix 'loose' or 'fine')
-        recache: bool, whether to re-write the data to cache. Default is False.
+    Returns:
+        arr: CachedData, i.e., a np.array-like object containing the correlator
+            and with shape (nconfigs, nt)
     """
     h5fname = default_cache_name(engine)
     if basename.endswith('loose') or basename.endswith('fine'):
@@ -427,13 +431,6 @@ def get_correlator(engine, basename, recache=False):
     if (not cache_exists(engine)) or (not basename_cached(engine, basename)):
         # Process a missing correlator into the cache
         LOGGER.error('missing correlator %s', basename)
-        input_db = engine.url.database
-        interface = ReductionInterface(input_db, h5fname)
-        interface.process_data(basename=basename)
-    elif recache:
-        # Rewrite the data into the cache.
-        # Useful, e.g, when new data has been added to the database.
-        LOGGER.info('Re-caching correlator %s', basename)
         input_db = engine.url.database
         interface = ReductionInterface(input_db, h5fname)
         interface.process_data(basename=basename)
