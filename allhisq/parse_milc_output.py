@@ -80,7 +80,7 @@ def main():
 
             # Write result
             dbname = fname.replace(f"{series}.lat.{trajectory}", ".sqlite")
-            database = os.path.join(root, dbname)
+            database = os.path.join(os.getcwd(), dbname)
             engine = sqlalchemy.create_engine('sqlite:///' + database)
             LOGGER.info("Writing %s", database)
             # os.remove(database)
