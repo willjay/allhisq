@@ -185,3 +185,53 @@ def apply_naming_convention(aliases, convention=None):
         if val in convention:
             aliases[key] = convention[val]
     return aliases
+
+
+class MesonNames(object):
+    """
+    Constructs a quick look-up table for meson names based on the physical identify of the quarks.
+    E.g., ('1.0 m_light', '1.0 m_light') corresponds to a pion.
+    Typical usage:
+    >>> table = MesonNames()
+    >>> table.identify('1.0 m_light', '1.0 m_strange')
+    'K'
+    """
+    def __init__(self):
+        self.build_state_table()
+
+    def identify(self, mass1, mass2):
+        """
+        Identifies the physical name for a state give a pair of masses, working in either order for
+        masses. For example:
+        ('1.0 m_light', '1.0 m_light') --> 'pi'
+        ('1.0 m_light', '1.0 m_strange') --> 'K'
+        """
+        state = self.states.get((mass1, mass2), None)
+        if not state:
+            state = self.states.get((mass2, mass1), None)
+        return state
+
+    def build_state_table(self):
+        """
+        Builds a "table", i.e., a dictionary of the form {(mass1, mass2): 'state_name'}.
+        """
+        # Define the quark masses in our dataset
+        light_quarks = ['1.0 m_light', '0.1 m_strange', '0.2 m_strange']
+        charm_ratios = ['0.9', '1.0', '1.1', '1.4', '1.5', '2.0', '2.5']
+        charm_quarks = ['{0} m_charm'.format(rat) for rat in charm_ratios]
+        bottom_quarks = ['3.0 m_charm', '4.0 m_charm', '4.2 m_charm']
+
+        # Build up a dictionary of states (m1, m2) : state
+        states = {}
+        for light in light_quarks:
+            states[(light, light)] = 'pi'
+            states[(light, '1.0 m_strange')] = 'K'
+            for charm in charm_quarks:
+                states[(light, charm)] = 'D'
+            for bottom in bottom_quarks:
+                states[(light, bottom)] = 'B'
+        for charm in charm_quarks:
+            states[('1.0 m_strange', charm)] = 'Ds'
+        for bottom in bottom_quarks:
+            states[('1.0 m_strange', bottom)] = 'Bs'
+        self.states = states
