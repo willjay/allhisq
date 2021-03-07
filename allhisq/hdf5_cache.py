@@ -9,12 +9,13 @@ import bz2
 import logging
 import os
 import argparse
+import shutil
 import numpy as np
 import pandas as pd
 import sqlalchemy as sqla
 import h5py
-import shutil
 from . import utils
+from . import alias
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +32,8 @@ def main():
     parser.add_argument("--test", type=_str2bool, nargs='?',
                         const=True, default=False,
                         help="Whether to run in test mode (no data is read).")
+    parser.add_argument("--tsm", type=str, default=None,
+                        help="Possible restriction of tsm to even/odd/mixed solves")
 
     args = parser.parse_args()
     input_db = args.db
@@ -52,8 +55,7 @@ def main():
     else:
         log_fname = "cache_{stem}log".format(stem=stem)
 
-    test_only = args.test
-    run_reduction(input_db, output_fname, log_fname, test_only)
+    run_reduction(input_db, output_fname, log_fname, args.test, tsm_source=args.tsm)
 
 
 def _str2bool(val):
@@ -68,7 +70,7 @@ def _str2bool(val):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def run_reduction(input_db, output_fname, log_fname, test_only=False):
+def run_reduction(input_db, output_fname, log_fname, test_only=False, tsm_source=None):
     """ Runs the reduction from the sqlite db to HDF5 """
     logging.basicConfig(filename=log_fname,
                         format='%(levelname)s:%(message)s',
@@ -78,7 +80,7 @@ def run_reduction(input_db, output_fname, log_fname, test_only=False):
     LOGGER.info('FNAME:output hdf5 name: %s', output_fname)
     LOGGER.info('FNAME:log name: %s', log_fname)
     LOGGER.info('TIMESTAMP:start, %s', datetime.datetime.now().isoformat())
-    interface = ReductionInterface(input_db, output_fname)
+    interface = ReductionInterface(input_db, output_fname, tsm_source)
     if test_only:
         LOGGER.info('TEST: Skipping reading actual data from db.')
     else:
@@ -112,17 +114,19 @@ def tsm_single_config(dataframe, loose_only=False):
     >>> tsm_single_config(input_df)
     Args:
         df: DataFrame with columns 'fine' and 'loose'.
+        loose_only: bool, whether to get the average value of the loose solves
+             only. Default is False.
     Returns:
         array, the combined data
     """
     for col in ['fine', 'loose']:
         if col not in dataframe.columns:
             msg = (
-                "DataFrame must have column {0} for tsm. \n"
+                "TSM_SINGLE_CONFIG: DataFrame must have column {0} for tsm. \n"
                 "Columns present: {1}".format(col, dataframe.columns)
             )
             raise KeyError(msg)
-    
+
     if loose_only:
         loose_full = np.array(list(dataframe['loose'].dropna().apply(np.array)))
         average = np.mean(loose_full, axis=0)
@@ -134,9 +138,21 @@ def tsm_single_config(dataframe, loose_only=False):
     # Compare the difference between the fine and loose solve
     # to yield a measurement of the bias introduced by the
     # loose solve
-    fine_control = np.array(dataframe[mask]['fine'].item())
-    loose_control = np.array(dataframe[mask]['loose'].item())
-    bias_correction = fine_control - loose_control
+    nfine = len(dataframe[mask]['fine'])
+    nloose = len(dataframe[mask]['loose'])
+    if nfine != nloose:
+        LOGGER.error("TSM: Invalid solves nfine %s, nloose %s", nfine, nloose)
+        raise ValueError("Invalide solves encountered.")
+    if nfine > 1:
+        LOGGER.info("TSM: averaging bias from nfine %s solves.", nfine)
+        fine_control = dataframe[mask]['fine'].apply(np.asarray)
+        loose_control = dataframe[mask]['loose'].apply(np.asarray)
+        bias_correction = (fine_control - loose_control).values
+        bias_correction = np.mean(np.vstack(bias_correction), axis=0)
+    else:
+        fine_control = np.array(dataframe[mask]['fine'].item())
+        loose_control = np.array(dataframe[mask]['loose'].item())
+        bias_correction = fine_control - loose_control
 
     # Average results of the loose solve from
     # different "tsrc" on each timeslice
@@ -167,14 +183,22 @@ def tsm(data):
         # Combine 'fine' and 'loose' solves using tsm
         to_combine = subdf.pivot(
             index='tsrc', columns='solve_type', values='data')
-        data_tsm, bias_correction = tsm_single_config(to_combine)
-        reduced.append({
-            'series': series,
-            'trajectory': trajectory,
-            'data': data_tsm,
-            'bias_correction': bias_correction,
-            'n_tsrc': len(subdf['tsrc'].unique()),
-        })
+        try:
+            data_tsm, bias_correction = tsm_single_config(to_combine)
+            reduced.append({
+                'series': series,
+                'trajectory': trajectory,
+                'data': data_tsm,
+                'bias_correction': bias_correction,
+                'n_tsrc': len(subdf['tsrc'].unique()),
+            })
+        except KeyError as err:
+            if "TSM_SINGLE_CONFIG" in str(err):
+                LOGGER.info(
+                    "TSM: missing fine/loose pair series %s trajectory %s",
+                    series, trajectory)
+            else:
+                raise err
     return pd.DataFrame(reduced)
 
 
@@ -254,7 +278,12 @@ def write_hdf5(h5file, data, postgres_attrs=None, sqlite_attrs=None):
 
 class ReductionInterface(object):
     """Interface for reading/processing data: sqlite to hdf5."""
-    def __init__(self, db_choice, h5fname):
+    def __init__(self, db_choice, h5fname, tsm_source=None):
+        if tsm_source not in ['even', 'odd', 'mixed', None]:
+            raise ValueError((
+                "Invalid tsm_source. "
+                "Please choose 'even', 'odd', 'mixed' or None"))
+        self.tsm_source = tsm_source
         self.h5fname = h5fname
         self.db_choice = db_choice
         with h5py.File(h5fname) as ifile:
@@ -304,6 +333,13 @@ class ReductionInterface(object):
             LOGGER.info('TIMESTAMP: %s', datetime.datetime.now().isoformat())
             data = self.read_data(subdf['correlator_id'].values)
             data = unpackage(data)
+            if self.tsm_source is not None:
+                status = check_tsm_sources(data)
+                data = pd.merge(data, status, on=["series", "trajectory"])
+                LOGGER.info('INFO: Restricting to tsm: %s', self.tsm_source)
+                LOGGER.info('INFO: size of data before: %d', len(data))
+                data = data[data['status:full'] == self.tsm_source]
+                LOGGER.info('INFO: size of data after: %d', len(data))
             reduced = tsm(data)
             reduced['basename'] = basename
             yield reduced
@@ -337,8 +373,8 @@ class ReductionInterface(object):
                 # make a backup version every so often.
                 # 500 is arbitrary.
                 if (idx % 500) == 0:
-                    LOGGER.info('BACKUP: copying results to backup file.')
                     backup = f"{self.h5fname}.bak"
+                    LOGGER.info('BACKUP: copying results to %s', backup)
                     shutil.copy(self.h5fname, backup)
         else:
             data = self.process_basename(basename)
@@ -397,13 +433,16 @@ def _get_correlator(h5fname, basename):
         arr = CachedData(dset)
     return arr
 
-def get_correlator(engine, basename, recache=False):
+def get_correlator(engine, basename):
     """
     Gets a correlator from the cache.
-    Args: 
+    Args:
         engine: database connetion engine
         basename: str, the name of the correlator (no suffix 'loose' or 'fine')
         recache: bool, whether to re-write the data to cache. Default is False.
+    Returns:
+        arr: CachedData, i.e., a np.array-like object containing the correlator
+            and with shape (nconfigs, nt)
     """
     h5fname = default_cache_name(engine)
     if basename.endswith('loose') or basename.endswith('fine'):
@@ -424,6 +463,109 @@ def get_correlator(engine, basename, recache=False):
         interface.process_data(basename=basename)
     # Grab the correlator from the cache
     return _get_correlator(h5fname, basename)
+
+@utils.timing
+def get_pre_tsm_raw_data(basename, engine):
+    """
+    Gets "pre-tsm" raw data from a database.
+    Args:
+        basename: str, correlator name without suffix 'fine' or 'loose'
+        engine: database connection engine
+    """
+    # Verify input basename
+    if basename.endswith('loose') or basename.endswith('fine'):
+        raise ValueError((
+            "basename must not end with suffix 'loose' or 'fine'. "
+            f"basename: {basename}"))
+    if (not alias.match_2pt(basename)) and (not alias.match_3pt(basename)):
+        raise ValueError((
+            "basename is unrecognized as a valid 2pt or 3pt function. "
+            f"basename: {basename}"))
+
+    query = """
+        SELECT correlators.name, data.*  FROM correlators
+        JOIN data ON correlators.id = data.correlator_id
+        WHERE correlator_id IN
+        (SELECT id FROM correlators WHERE name LIKE '{basename}%%');
+        """.format(basename=basename)
+    data_raw = pd.read_sql_query(query, engine)
+    data_raw = unpackage(data_raw)
+    return data_raw
+
+
+def check_tsm_sources(pre_tsm):
+    """
+    Checks the sources used for the truncated solver method (TSM), which are
+    either even or odd. The meaning of the status codes are the following:
+    Full (fine+loose) solves:
+        * even: all sources, both fine and loose, are even
+        * odd: all sources, both fine and loose, are odd
+        * mixed: a matching even fine-loose pair exists; all of the remaining
+          loose solves are odd
+        * missing match: no matching fine-loose pair exists
+        * unknown: any case not in 'even', 'odd', 'mixed', or 'missing match'
+    Fine solves / loose solves:
+        * even: all fine/loose solves use even sources
+        * odd: all fine/loose solves use odd sources
+        * mixed: the fine/loose solves use a mixture of even and odd sources
+    Args:
+        pre_tsm: DataFrame with data before having applied the truncated solver
+            method. Often applied to the output of the function unpackage(...)
+    Returns:
+        count: DataFrame with columns 'series', 'trajectory', 'status:fine',
+            'status:loose', 'status:full'.
+    """
+    counts = []
+    groups = pre_tsm.groupby(['series', 'trajectory'])
+    for (series, trajectory), group in groups:
+        fine = (group['solve_type'] == 'fine')
+        loose = ~fine
+        # match = (group[loose]['tsrc'] == group[fine]['tsrc'].item())
+        match = group[loose]['tsrc'].isin(group[fine]['tsrc'])
+        n_match = bool(len(group[loose][match]))
+
+        # Full (fine + loose) solves
+        n_odd = np.sum(group['tsrc'].values % 2)
+        n_even = len(group) - n_odd
+        if n_odd == 0:
+            status_full = 'even'
+        elif n_odd == len(group):
+            status_full = 'odd'
+        elif n_match > 0:
+            if n_even == 2:
+                status_full = 'mixed'
+            else:
+                status_full = 'unknown'
+        else:
+            status_full = 'missing match'
+
+        # Fine solves only
+        n_odd = np.sum(group[fine]['tsrc'].values % 2)
+        if n_odd == 0:
+            status_fine = 'even'
+        elif n_odd == len(group[fine]):
+            status_fine = 'odd'
+        else:
+            status_fine = 'mixed'
+
+        # Loose solves only
+        n_odd = np.sum(group[loose]['tsrc'].values % 2)
+        if n_odd == 0:
+            status_loose = 'even'
+        elif n_odd == len(group[loose]):
+            status_loose = 'odd'
+        else:
+            status_loose = 'mixed'
+
+        counts.append({
+            'series': series,
+            'trajectory': trajectory,
+            'status:full': status_full,
+            'status:fine': status_fine,
+            'status:loose': status_loose,
+        })
+
+    return pd.DataFrame(counts)
 
 
 if __name__ == '__main__':

@@ -25,7 +25,8 @@ def main():
                         help="input database including full path")
     # Common choices for c2prefix include
     parser.add_argument("c2prefix", type=str, default="P5-P5_RW",
-                        help="prefix for 2pt correlators")
+                        help=("prefix for 2pt correlators. "
+                              "Try 'P5-P5_RW' or 'A4-A4_RW_RW'."))
     args = parser.parse_args()
     input_db = args.db
     db_info = parse_db_name(input_db)

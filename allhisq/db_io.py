@@ -11,6 +11,7 @@ import sqlalchemy as sqla
 from psycopg2.extensions import register_adapter, AsIs
 from . import alias
 from . import hdf5_cache
+from . import cuts
 
 LOGGER = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ def get_best_fit_information(engine, form_factor_id):
     Nstates = collections.namedtuple(
         'NStates', ['n', 'no', 'm', 'mo'], defaults=(1, 0, 0, 0)
     )
-    
+
     def _float_or_none(astr):
         if astr is None:
             return None
@@ -147,7 +148,7 @@ def get_glance_data(form_factor_id, engine, apply_alias=True):
         (nconfigs > 100) and
         not ((corr_type != 'three-point') and (name like 'A4-A4%%'))
         and (form_factor_id = {form_factor_id});"""
-    dataframe = pd.read_sql_query(query, engine)    
+    dataframe = pd.read_sql_query(query, engine)
     basenames = dataframe['basename'].values
     data = {}
     for _, row in dataframe.iterrows():
@@ -157,11 +158,79 @@ def get_glance_data(form_factor_id, engine, apply_alias=True):
         aliases = alias.get_aliases(basenames)
         aliases = alias.apply_naming_convention(aliases)
         for basename in basenames:
-            data[aliases[basename]] = data.pop(basename)        
+            data[aliases[basename]] = data.pop(basename)
+    return data
+
+def fix_signs(data):
+    """
+    For reasons which remain mysterious, sometimes 3pt functions
+    have a funny minus-sign issue where the global sign of the correlator
+    seems to flip on every other configuration [1, -1, 1, -1, ...].
+    This problem seems mostly to afflict the currents S-S and V4-V4.
+    for a=0.057 fm.
+
+    As a quick fix, this function simply flips all the signs to be positive.
+    """
+    for key in data.keys():
+        if not isinstance(key, int):
+            continue
+        data[key] = np.sign(data[key]) * data[key]
     return data
 
 
-def get_form_factor_data(form_factor_id, engines, apply_alias=True):
+
+def sanitize_data(data):
+    """
+    Sanitizes data, removing NaNs.
+    Args:
+        data: dict, with array-like values
+    Returns:
+        data: dict, with array-like values with all rows containing NaNs removed
+        nan_configs: set, the rows numbers where NaNs were encountered
+    """
+    # Locate rows with NaNs
+    nan_rows = {locate_nan_rows(data[key]) for key in data}
+
+    # When no NaNs are found, the data are already sanitized
+    if not nan_rows:
+        return data, nan_rows
+
+    # Multiple distinct sets of rows with NaNs encountered
+    if len(nan_rows) > 1:
+        raise ValueError("Unable to sanitize data consistenly removing NaNs.")
+
+    # Remove the NaNs
+    keys = list(data.keys())
+    for key in keys:
+        data[key] = remove_nans(data.pop(key))
+
+    # Verify that resulting data are consistenly shaped
+    distinct_shapes = {val.shape for val in data.values()}
+    if len(distinct_shapes) != 1:
+        raise ValueError("Removing NaNs produced inconsistenly shaped data.")
+
+    nan_rows, = nan_rows
+    return data, nan_rows
+
+
+def locate_nan_rows(arr):
+    """Locates rows in which NaNs appear."""
+    # Count the number of NaNs in each row
+    nan_counts = np.sum(~np.isfinite(arr), axis=1)
+    # Trigger on a NaN appearing anywhere in a line/row
+    nans, = np.where(nan_counts > 1)
+    return frozenset(nans)
+
+
+def remove_nans(arr):
+    """Removes NaNs from an array."""
+    # Remove NaNs
+    _, nt = arr.shape
+    mask = np.isfinite(arr)
+    return arr[mask].reshape(-1, nt)
+
+
+def get_form_factor_data(form_factor_id, engines, apply_alias=True, sanitize=True):
     """
     Reads all the required correlators for analyzing the specified form factor.
     Args:
@@ -180,16 +249,28 @@ def get_form_factor_data(form_factor_id, engines, apply_alias=True):
     dataframe = pd.read_sql_query(query, engines['postgres'])
     ens_id = dataframe['ens_id'].unique().item()
     basenames = dataframe['basename'].values
-    basenames = [name for name in basenames if not
-                 (alias.match_2pt(name) and name.startswith('A4-A4'))]
+    # ens_id = 28 corresponds to the physical-mass a=0.057 fm ensemble.
+    # This ensemble has a bug with odd-source TSM data and requires applying a
+    # cut to the Monte Carlo history in order to obtain correct results.
+    if ens_id == 28:
+        LOGGER.warning("WARNING: Restricting to only even-source TSM solves")
+        get_correlator = cuts.get_correlator
+    else:
+        get_correlator = hdf5_cache.get_correlator
+    # Grab a list of necessary correlators, in particular identifying the
+    # source and sink 2pt functions. This line gives a map from the full
+    # basename to a name like 'source' or 'sink'.
+    aliases = alias.get_aliases(basenames)
+    # Apply any further renaming, e.g., 'sink' --> 'heavy-light'
+    name_map = alias.apply_naming_convention(aliases)
     data = {}
-    for basename in basenames:
-        data[basename] = hdf5_cache.get_correlator(engines[ens_id], basename)
-    if apply_alias:
-        aliases = alias.get_aliases(basenames)
-        aliases = alias.apply_naming_convention(aliases)
-        for basename in basenames:
-            data[aliases[basename]] = data.pop(basename)
+    for basename in aliases:
+        key = name_map[basename] if apply_alias else basename
+        data[key] = get_correlator(engines[ens_id], basename)
+    if sanitize:
+        data, nan_rows = sanitize_data(data)
+        if nan_rows:
+            LOGGER.warning("WARNING: NaNs found while sanitizing: %s", nan_rows)
     return data
 
 
@@ -221,7 +302,7 @@ def rebuild_params(params, nstates):
         nstates: namedtuple with field names 'n', 'no', 'm', 'mo'
     Returns:
         params: dict with reshaped values
-    """  
+    """
     params['Vnn'] = params['Vnn'].reshape(nstates.n, nstates.m)
     params['Vno'] = params['Vno'].reshape(nstates.n, nstates.mo)
     params['Von'] = params['Von'].reshape(nstates.no, nstates.m)
@@ -448,8 +529,8 @@ def build_upsert_query(engine, table_name, src_dict, do_update=False):
         if dtype.startswith(('int', 'float', 'double', 'numeric')):
             if value is None:
                 return "Null"
-            elif str(value) == 'NaN':
-                return "'NaN'"
+            elif str(value).lower() == 'nan':
+                return "'nan'"
             elif dtype.endswith('[]'):
                 value = ', '.join([str(v) for v in value])
                 value = "'{" + value + "}'"
