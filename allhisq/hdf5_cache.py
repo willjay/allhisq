@@ -390,13 +390,19 @@ class CachedData(np.ndarray):
             return
         self.attrs = getattr(obj, 'attrs', None)
 
+def _get_correlator(h5fname, basename):
+    "Gets a correlator (basename) from the cache (h5fname)."
+    with h5py.File(h5fname, 'r') as ifile:
+        dset = ifile['data'][basename]
+        arr = CachedData(dset)
+    return arr
 
 def get_correlator(engine, basename, recache=False):
     """
     Gets a correlator from the cache.
     Args: 
         engine: database connetion engine
-        baesname: str, the name of the correlator (no suffix 'loose' or 'fine')
+        basename: str, the name of the correlator (no suffix 'loose' or 'fine')
         recache: bool, whether to re-write the data to cache. Default is False.
     """
     h5fname = default_cache_name(engine)
@@ -416,11 +422,8 @@ def get_correlator(engine, basename, recache=False):
         input_db = engine.url.database
         interface = ReductionInterface(input_db, h5fname)
         interface.process_data(basename=basename)
-    # Grab the correaltor from the cache
-    with h5py.File(h5fname, 'r') as ifile:
-        dset = ifile['data'][basename]
-        arr = CachedData(dset)
-    return arr
+    # Grab the correlator from the cache
+    return _get_correlator(h5fname, basename)
 
 
 if __name__ == '__main__':
