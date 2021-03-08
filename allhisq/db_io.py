@@ -11,7 +11,7 @@ import sqlalchemy as sqla
 from psycopg2.extensions import register_adapter, AsIs
 from . import alias
 from . import hdf5_cache
-from . import cuts
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -249,14 +249,7 @@ def get_form_factor_data(form_factor_id, engines, apply_alias=True, sanitize=Tru
     dataframe = pd.read_sql_query(query, engines['postgres'])
     ens_id = dataframe['ens_id'].unique().item()
     basenames = dataframe['basename'].values
-    # ens_id = 28 corresponds to the physical-mass a=0.057 fm ensemble.
-    # This ensemble has a bug with odd-source TSM data and requires applying a
-    # cut to the Monte Carlo history in order to obtain correct results.
-    if ens_id == 28:
-        LOGGER.warning("WARNING: Restricting to only even-source TSM solves")
-        get_correlator = cuts.get_correlator
-    else:
-        get_correlator = hdf5_cache.get_correlator
+
     # Grab a list of necessary correlators, in particular identifying the
     # source and sink 2pt functions. This line gives a map from the full
     # basename to a name like 'source' or 'sink'.
@@ -266,7 +259,7 @@ def get_form_factor_data(form_factor_id, engines, apply_alias=True, sanitize=Tru
     data = {}
     for basename in aliases:
         key = name_map[basename] if apply_alias else basename
-        data[key] = get_correlator(engines[ens_id], basename)
+        data[key] = hdf5_cache.get_correlator(engines[ens_id], basename)
     if sanitize:
         data, nan_rows = sanitize_data(data)
         if nan_rows:
