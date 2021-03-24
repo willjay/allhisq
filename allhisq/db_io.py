@@ -2,6 +2,8 @@
 Read and write functions for interacting with a database.
 """
 import logging
+import os
+import pathlib
 import collections
 import ast
 import pandas as pd
@@ -9,9 +11,13 @@ import gvar as gv
 import numpy as np
 import sqlalchemy as sqla
 from psycopg2.extensions import register_adapter, AsIs
+import aiosql
 from . import alias
 from . import hdf5_cache
-from . import cuts
+from . import db_connection as db
+from . import utils
+from . import conventions
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -230,6 +236,35 @@ def remove_nans(arr):
     return arr[mask].reshape(-1, nt)
 
 
+def read_data(basenames, engine, apply_alias=True, sanitize=True):
+    """
+    Reads all the required correlators for analyzing the specified form factor.
+    Args:
+        basename: list of correlator basenames
+        engines: connection engine
+        apply_alias: bool, whether to rename the correlators descriptively
+        sanitize: bool, whether or not to remove nans from the data
+    Returns:
+        data: dict with the data as arrays
+    """
+    if apply_alias:
+        # Map to descriptive names like 'source' or 'sink'
+        aliases = alias.get_aliases(basenames)
+        # Further map to conventional names like 'sink' --> 'heavy-light'
+        name_map = alias.apply_naming_convention(aliases)
+    data = {}
+    for basename in basenames:
+        key = name_map.get(basename, None) if apply_alias else basename
+        if key is None:
+            continue
+        data[key] = hdf5_cache.get_correlator(engine, basename)
+    if sanitize:
+        data, nan_rows = sanitize_data(data)
+        if nan_rows:
+            LOGGER.warning("WARNING: NaNs found while sanitizing: %s", nan_rows)
+    return data
+
+
 def get_form_factor_data(form_factor_id, engines, apply_alias=True, sanitize=True):
     """
     Reads all the required correlators for analyzing the specified form factor.
@@ -249,14 +284,7 @@ def get_form_factor_data(form_factor_id, engines, apply_alias=True, sanitize=Tru
     dataframe = pd.read_sql_query(query, engines['postgres'])
     ens_id = dataframe['ens_id'].unique().item()
     basenames = dataframe['basename'].values
-    # ens_id = 28 corresponds to the physical-mass a=0.057 fm ensemble.
-    # This ensemble has a bug with odd-source TSM data and requires applying a
-    # cut to the Monte Carlo history in order to obtain correct results.
-    if ens_id == 28:
-        LOGGER.warning("WARNING: Restricting to only even-source TSM solves")
-        get_correlator = cuts.get_correlator
-    else:
-        get_correlator = hdf5_cache.get_correlator
+
     # Grab a list of necessary correlators, in particular identifying the
     # source and sink 2pt functions. This line gives a map from the full
     # basename to a name like 'source' or 'sink'.
@@ -266,7 +294,7 @@ def get_form_factor_data(form_factor_id, engines, apply_alias=True, sanitize=Tru
     data = {}
     for basename in aliases:
         key = name_map[basename] if apply_alias else basename
-        data[key] = get_correlator(engines[ens_id], basename)
+        data[key] = hdf5_cache.get_correlator(engines[ens_id], basename)
     if sanitize:
         data, nan_rows = sanitize_data(data)
         if nan_rows:
@@ -687,3 +715,115 @@ def build_upsert_query(engine, table_name, src_dict, do_update=False):
     query += ';'
 
     return query
+
+def fetch_basenames(engine, form_factor):
+    """
+    Fetches a list of correlators matching the specified form factor.
+    Args:
+        engine: sqlalchemy.Engine
+        form_factor: dict with keys 'current', 'mother', 'daughter', 'spectator', and 'momentum'
+    Returns:
+        numpy.array, the matching correlators
+    """
+    for key in ['current', 'm_mother', 'm_daughter', 'm_spectator', 'momentum']:
+        if key not in form_factor:
+            raise KeyError(f"Required key '{key}' is missing.")
+
+    def abspath(dirname):
+        return os.path.join(pathlib.Path(__file__).parent.absolute(), dirname)
+
+    # 2pt correlators like 'P5-P5_RW_RW_d_d_m0.002426_m0.002426_p000'
+    mother = "%_RW_RW_d_d_m{m_mother}_m{m_spectator}_p000%fine"
+    daughter = "%_RW_RW_d_d_m{m_daughter}_m{m_spectator}_{momentum}%fine"
+
+    # 3pt correlators like 'P5-P5_RW_RW_d_d_m0.002426_m0.002426_p000',
+    corr3 = "%_{current}_T%_m{m_mother}_RW_RW_x_d_m{m_daughter}_m{m_spectator}_{momentum}%fine"
+
+    params = {
+        'mother': mother.format(**form_factor),
+        'daughter': daughter.format(**form_factor),
+        'corr3': corr3.format(**form_factor)}
+
+    queries = aiosql.from_path(abspath("sql/"), "sqlite3")
+    with db.connection_scope(engine) as conn:
+        corrs = queries.get_correlator_names(conn, **params)
+    return np.squeeze(np.array(corrs))
+
+
+def get_ns(name):
+    """
+    Gets the spatial size of the lattice in the configuration
+    Args:
+        name: str, the name of the ensemble (e.g., 'l3248f211b580m002426m06730m8447-allHISQ')
+    Returns:
+        int, the spatial size of the lattice
+    """
+    ensembles = conventions.ensembles
+    mask = (ensembles['name'] == name)
+    return utils.extract_unique(ensembles[mask], 'ns')
+
+
+def get_nt(name):
+    """
+    Gets the temporal size of the lattice in the configuration
+    Args:
+        name: str, the name of the ensemble (e.g., 'l3248f211b580m002426m06730m8447-allHISQ')
+    Returns:
+        int, the temporal size of the lattice
+    """
+    ensembles = conventions.ensembles
+    mask = (ensembles['name'] == name)
+    return utils.extract_unique(ensembles[mask], 'nt')
+
+
+def get_sign(current):
+    """
+    Gets the conventional sign associated with a matrix element / form factor.
+    """
+    signs = conventions.form_factor_signs
+    mask = (signs['spin_taste_current'] == current)
+    return utils.extract_unique(signs[mask], 'sign')
+
+
+def get_mq(a_fm, description, quark_alias):
+    """
+    Gets the bare quark mass from a table given an alias (e.g., '1.0 m_light').
+    Args:
+        a_fm: float, the lattice spacing in fm
+        description: str, a description of the light quarks. Usually '1/27', '1/10', or '1/5'
+        quark_alias: str, the alias for the quark mass
+    Returns:
+        float, the bare quark mass
+    """
+    quark = conventions.quark_masses
+    mask = utils.bundle_mask(quark, {'a_fm':a_fm, 'description':description, 'alias': quark_alias})
+    return utils.extract_unique(quark[mask], 'mq')
+
+
+def get_alias(a_fm, description, quark_mass):
+    """
+    Gets an alias for a quark mass (e.g., '1.0 m_light') from a table.
+    Args:
+        a_fm: float, the lattice spacing in fm
+        description: str, a description of the light quarks. Usually '1/27', '1/10', or '1/5'
+        mq: float, the bare quark mass
+    Returns:
+        str, the alias for the quark mass
+    """
+    quark = conventions.quark_masses
+    mask = utils.bundle_mask(quark, {'a_fm': a_fm, 'description': description, 'mq': quark_mass})
+    return utils.extract_unique(quark[mask], 'alias')
+
+
+def get_ensemble(a_fm, description):
+    """
+    Gets an ensemble name (e.g., 'l3248f211b580m002426m06730m8447-allHISQ') from a table.
+    Args:
+        a_fm: float, the lattice spacing in fm
+        description: str, a description of the light quarks. Usually '1/27', '1/10', or '1/5'
+    Returns:
+        str, the ensemble name
+    """
+    ens = conventions.ensembles
+    mask = utils.bundle_mask(ens, {'a_fm': a_fm, 'description': description})
+    return utils.extract_unique(ens[mask], 'name')

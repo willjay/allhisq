@@ -16,9 +16,9 @@ def get_engines():
 
     # Get locations of external databases
     query = """
-        SELECT 
+        SELECT
             ext_db.ens_id,
-            ens.ns, 
+            ens.ns,
             ens.nt,
             ext_db.name,
             ext_db.location,
@@ -29,12 +29,12 @@ def get_engines():
         """
     df = pd.read_sql_query(query, engines['postgres'])
 
-    # Create engines for external databases sqlite 
+    # Create engines for external databases sqlite
     for _, row in df.iterrows():
         ens_id   = row['ens_id']
         name     = row['name']
         location = row['location']
-        db_type  = row['type'] 
+        db_type  = row['type']
         db_name  = os.path.join(location,name+'.sqlite')
 
         if (db_type != 'sqlite'):
@@ -44,7 +44,7 @@ def get_engines():
 
     return engines
 
-def make_engine(NEED_PASSWORD=True, PORT_FWD=False, port=8887, db_choice=None, sqlite=False):
+def make_engine(NEED_PASSWORD=True, PORT_FWD=False, port=8887, db_choice=None, sqlite=False, echo=False):
     """
     Makes an engine for interacting with SQL database directly with pandas.
     Args:
@@ -62,7 +62,7 @@ def make_engine(NEED_PASSWORD=True, PORT_FWD=False, port=8887, db_choice=None, s
         # unix/mac seems to need 3, 4, or 5 leading slashes in total
         # no idea why this is the case
         url = 'sqlite:///{database}'
-        return sqla.create_engine(url.format(**settings), echo=False)
+        return sqla.create_engine(url.format(**settings), echo=echo)
 
     else:
         settings = dict(db_settings.DATABASE)
@@ -76,14 +76,14 @@ def make_engine(NEED_PASSWORD=True, PORT_FWD=False, port=8887, db_choice=None, s
             url = 'postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}'
         else:
             url = 'postgresql+psycopg2://{user}@{host}:{port}/{database}'
-            
-        return sqla.create_engine(url.format(**settings))   
+
+        return sqla.create_engine(url.format(**settings), echo=echo)
 
 @contextmanager
 def session_scope(engine):
     """
     Provide a transactional scope around a series of operations.
-    Recipe taken from the docs: 
+    Recipe taken from the docs:
     [https://docs.sqlalchemy.org/en/13/orm/session_basics.html]
     See also the following thread for more context:
     [https://stackoverflow.com/questions/14799189/avoiding-boilerplate-session-handling-code-in-sqlalchemy-functions]
@@ -96,4 +96,16 @@ def session_scope(engine):
         session.rollback()
         raise
     finally:
-        session.close()   
+        session.close()
+
+@contextmanager
+def connection_scope(engine):
+    connection = engine.raw_connection()
+    try:
+        yield connection
+    except:
+        print("Issue encountered in connection_scope")
+        raise
+    finally:
+        connection.commit()
+        connection.close()
