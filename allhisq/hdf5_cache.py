@@ -439,7 +439,6 @@ def get_correlator(engine, basename):
     Args:
         engine: database connetion engine
         basename: str, the name of the correlator (no suffix 'loose' or 'fine')
-        recache: bool, whether to re-write the data to cache. Default is False.
     Returns:
         arr: CachedData, i.e., a np.array-like object containing the correlator
             and with shape (nconfigs, nt)
@@ -451,13 +450,6 @@ def get_correlator(engine, basename):
     if (not cache_exists(engine)) or (not basename_cached(engine, basename)):
         # Process a missing correlator into the cache
         LOGGER.error('missing correlator %s', basename)
-        input_db = engine.url.database
-        interface = ReductionInterface(input_db, h5fname)
-        interface.process_data(basename=basename)
-    elif recache:
-        # Rewrite the data into the cache.
-        # Useful, e.g, when new data has been added to the database.
-        LOGGER.info('Re-caching correlator %s', basename)
         input_db = engine.url.database
         interface = ReductionInterface(input_db, h5fname)
         interface.process_data(basename=basename)
