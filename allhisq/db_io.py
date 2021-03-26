@@ -737,16 +737,16 @@ def fetch_basenames(engine, form_factor):
     daughter = "%_RW_RW_d_d_m{m_daughter}_m{m_spectator}_{momentum}%fine"
 
     # 3pt correlators like 'P5-P5_RW_RW_d_d_m0.002426_m0.002426_p000',
-    corr3 = "%_{current}_T%_m{m_mother}_RW_RW_x_d_m{m_daughter}_m{m_spectator}_{momentum}%fine"
+    corr3 = "%_{current}_T%_m{m_mother}_RW_RW_x_d_m{m_spectator}_m{m_daughter}_{momentum}%fine"
 
     params = {
         'mother': mother.format(**form_factor),
         'daughter': daughter.format(**form_factor),
         'corr3': corr3.format(**form_factor)}
-
     queries = aiosql.from_path(abspath("sql/"), "sqlite3")
     with db.connection_scope(engine) as conn:
         corrs = queries.get_correlator_names(conn, **params)
+    
     return np.squeeze(np.array(corrs))
 
 
