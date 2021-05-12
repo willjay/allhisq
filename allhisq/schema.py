@@ -1268,6 +1268,128 @@ def main():
         ORDER BY ens_id, basename, model_probability DESC
         );"""
 
+    model_averaging_ratio_result = """
+        CREATE TABLE IF NOT EXISTS model_averaging_ratio_result
+        (
+            fit_id serial PRIMARY KEY,
+            form_factor_id integer REFERENCES form_factor(form_factor_id),
+            -- priors / posteriors
+            prior text,
+            params text,
+            r text not NULL,
+            -- statistics
+            q_value float,
+            p_value float,
+            chi2_aug float,
+            chi2 float,
+            chi2_per_dof float,
+            dof integer,
+            nparams integer,
+            npoints integer,
+            aic float,
+            model_probability float,
+            -- analysis inputs
+            m_src text not NULL,
+            m_snk text not NULL,
+            tmin_src integer not NULL,
+            tmin_snk integer not NULL,
+            t_step integer not NULL,
+            n_decay_src integer not NULL,
+            n_decay_snk integer not NULL,
+            calcdate timestamp with time zone,
+            UNIQUE(form_factor_id, tmin_src, tmin_snk, t_step, n_decay_src, n_decay_snk)
+        );"""
+
+    model_averaging_ratio_best_fit = """
+        CREATE VIEW model_averaging_ratio_best_fit AS(
+        SELECT DISTINCT ON (form_factor_id) *
+        FROM model_averaging_ratio_result
+        ORDER BY form_factor_id, model_probability DESC);"""
+
+    result_form_factor_variations = """
+        CREATE TABLE IF NOT EXISTS result_form_factor_variations
+        (
+            fit_id serial PRIMARY KEY,
+            ens_id integer REFERENCES ensemble(ens_id),
+            form_factor_id, interger REFERENCES form_factor(form_factor_id),
+            -- statistics
+            q_value float,
+            p_value float,
+            chi2_aug float,
+            chi2 float,
+            chi2_per_dof float,
+            dof integer,
+            nparams integer,
+            npoints integer,
+            aic float,
+            model_probability float,
+            -- analysis inputs
+            tmin_src integer not NULL,
+            tmin_snk integer not NULL,
+            tmax_src integer not NULL,
+            tmax_snk integer not NULL,
+            n_decay_src integer not NULL,
+            n_decay_snk integer not NULL,
+            n_oscillating_src inteter not NULL,
+            n_oscillating_snk integer not NULL,
+            -- priors
+            prior text,
+            r_guess text,
+            prior_alias text,
+            -- posteriors
+            params text,
+            energy_src text,
+            energy_snk text,
+            amp_src text,
+            amp_snk text,
+            r text,
+            form_factor text,
+            calcdate timestamp with time zone,
+            UNIQUE(ens_id, form_factor_id, tmin_src, tmin_snk, tmax_src, tmax_snk,
+                   n_decay_src, n_decay_snk, n_oscillating_src, n_oscillating_snk)
+        );"""
+
+    campaign_results_form_two_point = """
+        CREATE TABLE IF NOT EXISTS campaign_results_two_point (
+        result_id serial PRIMARY KEY,
+        ens_id integer REFERENCES ensemble(ens_id),
+        corr_id integer REFERENCES correlator_n_point(corr_id),
+        -- meta information
+        a_fm float not NULL,
+        basename text not NULL,
+        momentum text not NULL,
+        m_heavy float not NULL,
+        m_light float not NULL,
+        alias_heavy text not NULL,
+        alias_light text not NULL,
+        -- analysis inputs
+        n_decay integer not NULL,
+        n_oscillating  integer not NULL,
+        tmin integer not NULL,
+        tmax integer not NULL,
+        -- priors
+        prior text,
+        -- posters
+        params text,
+        energy text,
+        amp text,
+        -- statistics
+        q_value float,
+        p_value float,
+        chi2_aug float,
+        chi2 float,
+        chi2_per_dof float,
+        dof integer,
+        nparams integer,
+        npoints integer,
+        aic float,
+        model_probability float,
+        calcdate timestamp with time zone,
+        UNIQUE(ens_id, corr_id, a_fm, basename, momentum, m_heavy, m_light)
+    );"""
+
+
+
     engine = db.make_engine()
 
     queries = [
@@ -1330,7 +1452,8 @@ def main():
 #         form_factor_signs,
 #         bootstrap_status_form_factor
 #         lec_slope_mu,
-        form_factor_systematic
+        # form_factor_systematic
+
     ]
     for query in queries:
         print(query)
