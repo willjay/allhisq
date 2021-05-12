@@ -4,22 +4,29 @@ Module for generating, writing, and reading opaque blinding factors
 import hashlib
 from array import array
 import numpy as np
+import argparse
+import os
 
 
 def main():
     """
     Generates a blinding factor, saves it to disk, and verifies that reading was successful.
     """
-    seed_str = 'allhisq_blind_v12345'
+    parser = argparse.ArgumentParser()
+    parser.add_argument("seed_str", type=str, help="the seed string")
+    seed_str = parser.parse_args().seed_str
+
     fname = f"{seed_str}.bin"
     blind = compute_blinding_factor(seed_str)
     write_blind(fname, blind)
     blind2 = read_blind(fname)
 
     print("Created blind =", blind)
-    print("Read blind from ", fname)
+    print("Wrote blind to", fname)
+    print("Read blind from", fname)
     print("Read blind =", blind2)
     print("Blinds matched before and after reading?", blind == blind2)
+    print("Blind between 0.95 and 1.05?", (0.95 < blind) and (blind < 1.05))
 
 
 class Blind(float):
@@ -77,6 +84,8 @@ def write_blind(fname, blind):
         fname: str, the full path to the file
         blind: float, the blinding factor
     """
+    if os.path.isfile(fname):
+        raise FileExistsError(f"{fname} already exists.")
     with open(fname, 'wb') as ofile:
         float_array = array('d', [blind])
         float_array.tofile(ofile)
