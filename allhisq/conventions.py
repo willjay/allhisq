@@ -112,7 +112,8 @@ ensembles = pd.DataFrame([
     [0.088, '1/27', 64, 96, 'l6496f211b630m0012m0363m432-allHISQ'],
     [0.088, '1/10', 48, 96, 'l4896f211b630m00363m0363m430-allHISQ'],
     [0.057, '1/27', 96, 192, 'l96192f211b672m0008m022m260-allHISQ'],
-    [0.057, '1/10', 64, 144, 'l64144f211b672m0024m024m286-allHISQ'],],
+    [0.057, '1/10', 64, 144, 'l64144f211b672m0024m024m286-allHISQ'],
+    [0.057, '1/5', 48, 144, 'l48144f211b672m0048m024m286-allHISQ'],],
     columns=['a_fm', 'description', 'ns', 'nt', 'name'])
 
 states = pd.DataFrame([

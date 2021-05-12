@@ -426,13 +426,19 @@ class CachedData(np.ndarray):
             return
         self.attrs = getattr(obj, 'attrs', None)
 
+def _get_correlator(h5fname, basename):
+    "Gets a correlator (basename) from the cache (h5fname)."
+    with h5py.File(h5fname, 'r') as ifile:
+        dset = ifile['data'][basename]
+        arr = CachedData(dset)
+    return arr
 
 def get_correlator(engine, basename):
     """
     Gets a correlator from the cache.
     Args:
         engine: database connetion engine
-        baesname: str, the name of the correlator (no suffix 'loose' or 'fine')
+        basename: str, the name of the correlator (no suffix 'loose' or 'fine')
     Returns:
         arr: CachedData, i.e., a np.array-like object containing the correlator
             and with shape (nconfigs, nt)
@@ -447,11 +453,8 @@ def get_correlator(engine, basename):
         input_db = engine.url.database
         interface = ReductionInterface(input_db, h5fname)
         interface.process_data(basename=basename)
-    # Grab the correaltor from the cache
-    with h5py.File(h5fname, 'r') as ifile:
-        dset = ifile['data'][basename]
-        arr = CachedData(dset)
-    return arr
+    # Grab the correlator from the cache
+    return _get_correlator(h5fname, basename)
 
 @utils.timing
 def get_pre_tsm_raw_data(basename, engine):

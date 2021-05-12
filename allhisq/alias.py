@@ -102,10 +102,12 @@ def is_source(corr2, corr3):
     Returns:
         bool
     """
+    operator_agrees = (corr2['gamma_src_snk'] == corr3['gamma_src_snk'])
     mass_triplet = corr3['mass_triplet']
     mass_agrees = (corr2['masses'] == set((mass_triplet.src, mass_triplet.spec)))
     momentum_agrees = (corr2['momentum'] == corr3['momentum'])
-    return mass_agrees and momentum_agrees
+    
+    return operator_agrees and mass_agrees and momentum_agrees
 
 
 def all_equal(iterator):
@@ -217,10 +219,11 @@ class MesonNames(object):
         """
         # Define the quark masses in our dataset
         light_quarks = ['1.0 m_light', '0.1 m_strange', '0.2 m_strange']
-        charm_ratios = ['0.9', '1.0', '1.1', '1.4', '1.5', '2.0', '2.5']
-        charm_quarks = ['{0} m_charm'.format(rat) for rat in charm_ratios]
-        bottom_quarks = ['3.0 m_charm', '4.0 m_charm', '4.2 m_charm']
-
+        charm_ratios = ['0.9', '1.0', '1.1', '1.4', '1.5', '2.0', '2.5',
+                        '3.0', '4.0', '4.2']
+        charm_quarks = ['{0} m_charm'.format(rat) for rat in charm_ratios[:5]]
+        bottom_quarks = ['{0} m_charm'.format(rat) for rat in charm_ratios[5:]]
+        
         # Build up a dictionary of states (m1, m2) : state
         states = {}
         for light in light_quarks:
