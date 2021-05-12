@@ -796,7 +796,7 @@ def get_mq(a_fm, description, quark_alias):
         float, the bare quark mass
     """
     quark = conventions.quark_masses
-    mask = utils.bundle_mask(quark, {'a_fm':a_fm, 'description':description, 'alias': quark_alias})
+    mask = utils.bundle_mask(quark, a_fm=a_fm, description=description, alias=quark_alias)
     return utils.extract_unique(quark[mask], 'mq')
 
 
@@ -811,7 +811,7 @@ def get_alias(a_fm, description, quark_mass):
         str, the alias for the quark mass
     """
     quark = conventions.quark_masses
-    mask = utils.bundle_mask(quark, {'a_fm': a_fm, 'description': description, 'mq': quark_mass})
+    mask = utils.bundle_mask(quark, a_fm=a_fm, description=description, mq=quark_mass)
     return utils.extract_unique(quark[mask], 'alias')
 
 
@@ -825,5 +825,5 @@ def get_ensemble(a_fm, description):
         str, the ensemble name
     """
     ens = conventions.ensembles
-    mask = utils.bundle_mask(ens, {'a_fm': a_fm, 'description': description})
+    mask = utils.bundle_mask(ens, a_fm=a_fm, description=description)
     return utils.extract_unique(ens[mask], 'name')
