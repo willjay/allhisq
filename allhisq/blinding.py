@@ -1,12 +1,13 @@
 """
 Module for generating, writing, and reading opaque blinding factors
 """
-import hashlib
 from array import array
 import numpy as np
 import argparse
 import os
+from . import sha256
 
+np.seterr(over='ignore')
 
 def main():
     """
@@ -58,8 +59,9 @@ def seed_from_string(seed_str):
         seed: array of integers to be used with np.random.seed(seed)
     """
     assert isinstance(seed_str, str)
-    ahash = hashlib.sha256(seed_str.encode('utf-8'))
-    seed = np.frombuffer(ahash.digest(), dtype='uint32')
+    ahash = sha256.sha256(seed_str)
+    seed = np.frombuffer(ahash.hexdigest().encode(), dtype='uint32')[0]
+    print(seed)
     return seed
 
 
@@ -73,8 +75,8 @@ def compute_blinding_factor(seed_str):
         blind: Blind between 0.95 and 1.05
     """
     seed = seed_from_string(seed_str)
-    np.random.seed(seed)
-    return Blind(np.random.uniform(0.95, 1.05))
+    png = PRN(seed, 1)
+    return Blind(png.uniform(0.95, 1.05))
 
 
 def write_blind(fname, blind):
@@ -104,6 +106,76 @@ def read_blind(fname):
         blind.frombytes(ifile.read())
         blind, = blind
     return Blind(blind)
+
+class PRN:
+    """
+    Pseudorandom number generator.
+    This code is ported, with only minor revision from the MILC code,
+    https://github.com/milc-qcd/milc_qcd/blob/master/generic/ranstuff.c:27.
+    Args:
+        seed: int, seed for the random number generator
+        index: int, selects algorithm / which random number generator / which multiplier
+    """
+    def __init__(self, seed, index):
+        self.r = np.zeros(7, dtype=object)
+        seed = (69607+8*index)*seed+12345
+        self.r[0] = (seed>>8) & 0xffffff
+        seed = (69607+8*index)*seed+12345
+        self.r[1] = (seed>>8) & 0xffffff
+        seed = (69607+8*index)*seed+12345
+        self.r[2] = (seed>>8) & 0xffffff
+        seed = (69607+8*index)*seed+12345
+        self.r[3] = (seed>>8) & 0xffffff
+        seed = (69607+8*index)*seed+12345
+        self.r[4] = (seed>>8) & 0xffffff
+        seed = (69607+8*index)*seed+12345
+        self.r[5] = (seed>>8) & 0xffffff
+        seed = (69607+8*index)*seed+12345
+        self.r[6] = (seed>>8) & 0xffffff
+        seed = (69607+8*index)*seed+12345
+        self.ic_state = seed
+        self.multiplier = 100005 + 8*index
+        self.addend = 12345
+        self.scale = 1.0/(0x1000000)
+
+    def myrand(self):
+        """
+        Generates random numbers uniformly between zero and one.
+        Returns:
+            float, the random number
+        """
+        t = ( ((self.r[5] >> 7) | (self.r[6] << 17)) ^ ((self.r[4] >> 1) | (self.r[5] << 23)) ) & 0xffffff
+        self.r[6] = self.r[5]
+        self.r[5] = self.r[4]
+        self.r[4] = self.r[3]
+        self.r[3] = self.r[2]
+        self.r[2] = self.r[1]
+        self.r[1] = self.r[0]
+        self.r[0] = t
+        s = self.ic_state * self.multiplier + self.addend
+        self.ic_state = s
+        return self.scale*(t ^ ((s>>8)&0xffffff))
+
+    def uniform(self, low=0.0, high=1.0, size=None):
+        """
+        Draw samples from a uniform distribution between "low" and "high".
+        Args:
+
+            low: float, the lower boundary of the output interval. Default is 0.0.
+            high: float, the upper boundary of the output interval. Default is 1.0.
+            size: int, the number of draws to make
+        Returns:
+            out: ndarray or scalar, the samples drawn
+        """
+        if high <= low:
+            raise ValueError("Please specify high > low.")
+        if size is None:
+            size = 1
+        out = np.array([self.myrand() for _ in np.arange(size)])
+        out = out * (high - low) + low
+        if size == 1:
+            return out.item()
+        return out
 
 
 if __name__ == '__main__':
