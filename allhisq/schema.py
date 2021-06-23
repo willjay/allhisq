@@ -1388,7 +1388,17 @@ def main():
         UNIQUE(ens_id, corr_id, a_fm, basename, momentum, m_heavy, m_light)
     );"""
 
-
+    rbar = """
+        CREATE TABLE IF NOT EXISTS rbar (
+        rbar_id serial PRIMARY KEY,
+        form_factor_id interger REFERENCES form_factor(form_factor_id),
+        t_snk integer NOT NULL,
+        rbar text NOT NULL,
+        m_src text NOT NULL,
+        m_snk text NOT NULL,
+        calcdate timestamp with time zone,
+        UNIQUE(form_factor_id, t_snk)
+        );"""
 
     engine = db.make_engine()
 
