@@ -6,6 +6,7 @@ import os
 import pathlib
 import collections
 import ast
+from functools import reduce
 import pandas as pd
 import gvar as gv
 import numpy as np
@@ -194,6 +195,13 @@ def sanitize_data(data):
         data: dict, with array-like values with all rows containing NaNs removed
         nan_configs: set, the rows numbers where NaNs were encountered
     """
+    # Make sure the same number of configurations appear everywhere
+    nconfigs = np.inf
+    for datum in data.values():
+        nconfigs = min(nconfigs, datum.shape[0])
+    for key, datum in data.items():
+        data[key] = datum[:nconfigs, :]
+
     # Locate rows with NaNs
     nan_rows = {locate_nan_rows(data[key]) for key in data}
 
@@ -202,18 +210,24 @@ def sanitize_data(data):
         return data, nan_rows
 
     # Multiple distinct sets of rows with NaNs encountered
+    use_nans = False
     if len(nan_rows) > 1:
-        raise ValueError("Unable to sanitize data consistenly removing NaNs.")
+        LOGGER.warning("Found NaNs in different rows; taking the union of all such rows.")
+        use_nans = True
+        nan_rows = [reduce(lambda a, b: a | b, nan_rows), ]
 
     # Remove the NaNs
     keys = list(data.keys())
     for key in keys:
-        data[key] = remove_nans(data.pop(key))
+        if use_nans:
+            data[key] = remove_nans(data.pop(key), nan_rows[0])
+        else:
+            data[key] = remove_nans(data.pop(key))
 
     # Verify that resulting data are consistenly shaped
     distinct_shapes = {val.shape for val in data.values()}
     if len(distinct_shapes) != 1:
-        raise ValueError("Removing NaNs produced inconsistenly shaped data.")
+        raise ValueError("Removing NaNs produced inconsistenly shaped data.", distinct_shapes)
 
     nan_rows, = nan_rows
     return data, nan_rows
@@ -228,11 +242,14 @@ def locate_nan_rows(arr):
     return frozenset(nans)
 
 
-def remove_nans(arr):
+def remove_nans(arr, nan_rows=None):
     """Removes NaNs from an array."""
     # Remove NaNs
-    _, nt = arr.shape
-    mask = np.isfinite(arr)
+    nconfigs, nt = arr.shape
+    if nan_rows is None:
+        mask = np.isfinite(arr)
+    else:
+        mask = np.array([n for n in np.arange(nconfigs) if n not in nan_rows])
     return arr[mask].reshape(-1, nt)
 
 
@@ -294,7 +311,10 @@ def get_form_factor_data(form_factor_id, engines, apply_alias=True, sanitize=Tru
     data = {}
     for basename in aliases:
         key = name_map[basename] if apply_alias else basename
-        data[key] = hdf5_cache.get_correlator(engines[ens_id], basename)
+        try:
+            data[key] = hdf5_cache.get_correlator(engines[ens_id], basename)
+        except ValueError as err:
+            LOGGER.warning("WARNING: Unable to load %s", key)
     if sanitize:
         data, nan_rows = sanitize_data(data)
         if nan_rows:
@@ -414,8 +434,7 @@ def upsert(engine, table_name, dataframe):
     records = []
     for _, row in dataframe.iterrows():
         # Edge case: serial primary keys, e.g., may not be in the row yet
-        records.append({col.name: row[col.name]
-                        for col in table.columns if col.name in row})
+        records.append({col.name: row[col.name] for col in table.columns if col.name in row})
 
     # get list of fields making up primary key
     primary_keys = [
@@ -432,10 +451,7 @@ def upsert(engine, table_name, dataframe):
     # Edge case: all columns make up a primary key
     # Then upsert <--> 'on conflict do nothing'
     if update_dict == {}:
-        LOGGER.warning(
-            'No updateable columns found for table %s. Skipping upsert.',
-            table_name
-        )
+        LOGGER.warning('No updateable columns found for table %s. Skipping upsert.', table_name)
         # Still want to upsert without error.
         # TODO: implement insert_ignore()
         # insert_ignore(table_name, records)
@@ -746,7 +762,7 @@ def fetch_basenames(engine, form_factor):
     queries = aiosql.from_path(abspath("sql/"), "sqlite3")
     with db.connection_scope(engine) as conn:
         corrs = queries.get_correlator_names(conn, **params)
-    
+
     return np.squeeze(np.array(corrs))
 
 
