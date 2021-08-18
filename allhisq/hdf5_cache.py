@@ -286,7 +286,7 @@ class ReductionInterface(object):
         self.tsm_source = tsm_source
         self.h5fname = h5fname
         self.db_choice = db_choice
-        with h5py.File(h5fname) as ifile:
+        with h5py.File(h5fname, 'a') as ifile:
             try:
                 self.existing = list(ifile['data'].keys())
             except KeyError:
@@ -365,7 +365,7 @@ class ReductionInterface(object):
         # Run through all the data
         if basename is None:
             for idx, data in enumerate(self.__iter__()):
-                with h5py.File(self.h5fname) as ofile:
+                with h5py.File(self.h5fname, 'a') as ofile:
                     write_hdf5(ofile, data)
                     ofile.flush()
                     ofile.close()
@@ -378,7 +378,7 @@ class ReductionInterface(object):
                     shutil.copy(self.h5fname, backup)
         else:
             data = self.process_basename(basename)
-            with h5py.File(self.h5fname) as ofile:
+            with h5py.File(self.h5fname, 'a') as ofile:
                 write_hdf5(ofile, data)
                 ofile.flush()
                 ofile.close()
