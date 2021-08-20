@@ -34,6 +34,8 @@ def main():
                         help="Whether to run in test mode (no data is read).")
     parser.add_argument("--tsm", type=str, default=None,
                         help="Possible restriction of tsm to even/odd/mixed solves")
+    parser.add_argument("--do_tsm", type=_str2bool, default=True,
+                        help="Whether or not the data supports using the TSM")
 
     args = parser.parse_args()
     input_db = args.db
@@ -55,7 +57,7 @@ def main():
     else:
         log_fname = "cache_{stem}log".format(stem=stem)
 
-    run_reduction(input_db, output_fname, log_fname, args.test, tsm_source=args.tsm)
+    run_reduction(input_db, output_fname, log_fname, args.test, args.tsm, args.do_tsm)
 
 
 def _str2bool(val):
@@ -70,7 +72,7 @@ def _str2bool(val):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def run_reduction(input_db, output_fname, log_fname, test_only=False, tsm_source=None):
+def run_reduction(input_db, output_fname, log_fname, test_only=False, tsm_source=None, do_tsm=True):
     """ Runs the reduction from the sqlite db to HDF5 """
     logging.basicConfig(filename=log_fname,
                         format='%(levelname)s:%(message)s',
@@ -80,7 +82,7 @@ def run_reduction(input_db, output_fname, log_fname, test_only=False, tsm_source
     LOGGER.info('FNAME:output hdf5 name: %s', output_fname)
     LOGGER.info('FNAME:log name: %s', log_fname)
     LOGGER.info('TIMESTAMP:start, %s', datetime.datetime.now().isoformat())
-    interface = ReductionInterface(input_db, output_fname, tsm_source)
+    interface = ReductionInterface(input_db, output_fname, tsm_source, do_tsm)
     if test_only:
         LOGGER.info('TEST: Skipping reading actual data from db.')
     else:
@@ -202,6 +204,31 @@ def tsm(data):
     return pd.DataFrame(reduced)
 
 
+def combine_without_tsm(data):
+    """
+    Computes the averaged correlator by averaging over data with different source times.
+    This function does NOT apply the truncated solver method.
+    Args:
+        data: pandas.DataFrame with columns 'name', 'series', 'trajectory', 'data', 'tsrc'
+    Returns:
+        reduced: pandas.DataFrame with columns 'series', 'trajectory', 'data', 'n_tsrc'
+    """
+    name = data['name'].unique().item()
+    if name.endswith(('loose','fine')):
+        raise ValueError(f"Found {name} with suffix 'fine' or 'loose'. Shouldn't this use TSM?")
+    group = data.groupby(['series','trajectory'])
+    reduced = []
+    for (series, trajectory), subdf in group:
+        datum = np.vstack(subdf['data'].apply(np.asarray))  # full data with shape (tsrc, nt)
+        reduced.append({
+            'series': series,
+            'trajectory': trajectory,
+            'data': np.mean(datum, axis=0),
+            'n_tsrc': len(subdf['tsrc'].unique()),
+        })
+    return pd.DataFrame(reduced)
+
+
 def infer_solve_type(name):
     """ Gets the suffix 'loose' or 'fine'. """
     for suffix in ['loose', 'fine']:
@@ -278,11 +305,13 @@ def write_hdf5(h5file, data, postgres_attrs=None, sqlite_attrs=None):
 
 class ReductionInterface(object):
     """Interface for reading/processing data: sqlite to hdf5."""
-    def __init__(self, db_choice, h5fname, tsm_source=None):
+    def __init__(self, db_choice, h5fname, tsm_source=None, do_tsm=True):
         if tsm_source not in ['even', 'odd', 'mixed', None]:
             raise ValueError((
                 "Invalid tsm_source. "
                 "Please choose 'even', 'odd', 'mixed' or None"))
+        LOGGER.info('Applying TSM? %s', str(do_tsm))
+        self.do_tsm = do_tsm
         self.tsm_source = tsm_source
         self.h5fname = h5fname
         self.db_choice = db_choice
@@ -333,14 +362,20 @@ class ReductionInterface(object):
             LOGGER.info('TIMESTAMP: %s', datetime.datetime.now().isoformat())
             data = self.read_data(subdf['correlator_id'].values)
             data = unpackage(data)
-            if self.tsm_source is not None:
-                status = check_tsm_sources(data)
-                data = pd.merge(data, status, on=["series", "trajectory"])
-                LOGGER.info('INFO: Restricting to tsm: %s', self.tsm_source)
-                LOGGER.info('INFO: size of data before: %d', len(data))
-                data = data[data['status:full'] == self.tsm_source]
-                LOGGER.info('INFO: size of data after: %d', len(data))
-            reduced = tsm(data)
+            if self.do_tsm:
+                # Restrict to certain tsm solves (even/odd)?
+                # None takes all solves; this should be the usual preferred default
+                if self.tsm_source is not None:
+                    status = check_tsm_sources(data)
+                    data = pd.merge(data, status, on=["series", "trajectory"])
+                    LOGGER.info('INFO: Restricting to tsm: %s', self.tsm_source)
+                    LOGGER.info('INFO: size of data before: %d', len(data))
+                    data = data[data['status:full'] == self.tsm_source]
+                    LOGGER.info('INFO: size of data after: %d', len(data))
+                reduced = tsm(data)
+            else:
+                # Skip tsm. Just combine data from different source times
+                reduced = combine_without_tsm(data)
             reduced['basename'] = basename
             yield reduced
 
