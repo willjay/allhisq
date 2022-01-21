@@ -106,11 +106,12 @@ def is_source(corr2, corr3):
     mass_triplet = corr3['mass_triplet']
     mass_agrees = (corr2['masses'] == set((mass_triplet.src, mass_triplet.spec)))
     momentum_agrees = (corr2['momentum'] == corr3['momentum'])
+    # Kludge
+    kludge = corr2['basename'].startswith('P5-P5')
     # TODO: Verify general validity
     # The idea is that the 3pt functions have a prefix which specifies the *sink* operator only.
     # Thus, we shouldn't (?? verify this!) have to / be able to match the operators for the source.
-    return mass_agrees and momentum_agrees
-    # return operator_agrees and mass_agrees and momentum_agrees
+    return mass_agrees and momentum_agrees and kludge
 
 
 def all_equal(iterator):
