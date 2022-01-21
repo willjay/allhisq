@@ -1400,6 +1400,74 @@ def main():
         UNIQUE(form_factor_id, t_snk)
         );"""
 
+    pion = """
+        CREATE MATERIALIZED VIEW pion AS
+        (
+            SELECT ens_id, energy
+            FROM campaign_results_two_point
+            WHERE
+            (momentum = 'p000') AND
+            (basename like 'P5-P5%%') AND
+            (alias_light, alias_heavy) IN (
+	            ('1.0 m_light', '1.0 m_light'),
+	            ('0.1 m_strange', '0.1 m_strange'),
+	            ('0.2 m_strange', '0.2 m_strange')
+            )
+        );"""
+
+    kaon = """
+        CREATE MATERIALIZED VIEW kaon AS
+        (
+            SELECT ens_id, energy
+            FROM campaign_results_two_point
+            WHERE
+            (momentum = 'p000') AND
+            (basename like 'P5-P5%%') AND
+
+            (alias_heavy = '1.0 m_strange')
+        );"""
+
+    d_meson = """
+        CREATE MATERIALIZED VIEW ds_meson AS (
+            SELECT ens_id, alias_heavy, m_heavy, energy
+            FROM campaign_results_two_point
+            WHERE
+            (momentum = 'p000') AND
+            (basename like 'P5-P5%%') AND
+            (alias_light in ('1.0 m_light', '0.1 m_strange', '0.2 m_strange')) AND
+            (alias_heavy like '% m_charm')
+        );"""
+
+
+    ds_meson = """
+        CREATE MATERIALIZED VIEW ds_meson AS (
+            SELECT ens_id, alias_heavy, m_heavy, energy
+            FROM campaign_results_two_point
+            WHERE
+            (momentum = 'p000') AND
+            (basename like 'P5-P5%%') AND
+            (alias_light = '1.0 m_strange') AND
+            (alias_heavy like '% m_charm')
+        );"""
+
+    hadron_masses = """
+        CREATE VIEW hadron_masses AS
+        (
+            SELECT ens_id, m_heavy, alias_heavy,
+            pion.energy AS pion,
+            kaon.energy AS kaon,
+            d_meson.energy AS d,
+            ds_meson.energy AS ds
+            FROM pion
+            JOIN kaon USING(ens_id)
+            JOIN d_meson USING(ens_id)
+            JOIN ds_meson USING(ens_id, m_heavy, alias_heavy)
+        );"""
+
+
+
+
+
     engine = db.make_engine()
 
     queries = [
