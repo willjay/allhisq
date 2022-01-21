@@ -214,8 +214,8 @@ def combine_without_tsm(data):
         reduced: pandas.DataFrame with columns 'series', 'trajectory', 'data', 'n_tsrc'
     """
     name = data['name'].unique().item()
-    if name.endswith(('loose','fine')):
-        raise ValueError(f"Found {name} with suffix 'fine' or 'loose'. Shouldn't this use TSM?")
+    if name.endswith('loose'):
+        raise ValueError("Found {0} with suffix 'loose'. Shouldn't this use TSM?".format(name))
     group = data.groupby(['series','trajectory'])
     reduced = []
     for (series, trajectory), subdf in group:
@@ -315,7 +315,7 @@ class ReductionInterface(object):
         self.tsm_source = tsm_source
         self.h5fname = h5fname
         self.db_choice = db_choice
-        with h5py.File(h5fname) as ifile:
+        with h5py.File(h5fname, mode='a') as ifile:
             try:
                 self.existing = list(ifile['data'].keys())
             except KeyError:
@@ -400,7 +400,10 @@ class ReductionInterface(object):
         # Run through all the data
         if basename is None:
             for idx, data in enumerate(self.__iter__()):
-                with h5py.File(self.h5fname) as ofile:
+                with h5py.File(self.h5fname, mode='a') as ofile:
+                    if data.empty:
+                        print("Empty data frame at", idx)
+                        continue 
                     write_hdf5(ofile, data)
                     ofile.flush()
                     ofile.close()
@@ -413,7 +416,7 @@ class ReductionInterface(object):
                     shutil.copy(self.h5fname, backup)
         else:
             data = self.process_basename(basename)
-            with h5py.File(self.h5fname) as ofile:
+            with h5py.File(self.h5fname, mode='a') as ofile:
                 write_hdf5(ofile, data)
                 ofile.flush()
                 ofile.close()
