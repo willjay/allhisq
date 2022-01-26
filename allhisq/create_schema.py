@@ -66,7 +66,7 @@ def connection_scope(engine):
 def make_engine(db_settings, echo=False):
     settings = dict(db_settings)
     url = 'postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}'
-    if settings['database'] != 'fermilab_milc_prd':
+    if settings['database'] not in ('fermilab_milc_prd', 'atlytle_dev', 'atlytle_prd', 'atlytle'):
         raise ValueError("Invalid database")
     return sqla.create_engine(url.format(**settings), echo=echo)
 
