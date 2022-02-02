@@ -1,6 +1,6 @@
 """
 Creates the tables in an analysis database.
-Input to this script is a single text file with credentials / database settings, assumed 
+Input to this script is a single text file with credentials / database settings, assumed
 to be stored as a dict / json.
 For example:
 {
@@ -24,10 +24,10 @@ def main():
     if len(sys.argv) != 2:
         raise ValueError("Usage: create_schema.py /path/to/credentials")
     path = sys.argv[1]
-    
+
     with open(path) as ifile:
         db_settings = yaml.load(ifile, yaml.SafeLoader)
-    
+
     sql = SQLWrapper(db_settings)
     with sql.connection as conn:
         sql.queries.create_schema(conn)
@@ -77,7 +77,7 @@ class SQLWrapper:
         if driver != "psycopg2":
             raise NotImplementedError("Only psycopg2 currently supported, not", driver)
         self.engine = make_engine(db_settings, echo=echo)
-        self.queries = aiosql.from_path(abspath("sql/"), driver)
+        self.queries = aiosql.from_path(abspath("sql/postgres"), driver)
 
     @property
     def connection(self):
