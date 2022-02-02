@@ -2,11 +2,11 @@
 -- Creates the schema for the database
 CREATE TABLE IF NOT EXISTS ensemble
 (
-    ens_id serial PRIMARY KEY,
+    ens_id      serial PRIMARY KEY,
     name        text NOT NULL,    -- e.g., "HISQ 2+1+1"
     ns          integer NOT NULL,
     nt          integer NOT NULL,
-    description text DEFAULT '', 
+    description text DEFAULT '',
     UNIQUE(name, ns, nt)
 );
 
@@ -17,22 +17,22 @@ CREATE TABLE IF NOT EXISTS correlator_n_point
     name      text NOT NULL DEFAULT '',
     UNIQUE(ens_id, name)
 );
-    
+
 CREATE TABLE IF NOT EXISTS form_factor
 (
-    form_factor_id SERIAL PRIMARY KEY,
-    ens_id integer REFERENCES ensemble(ens_id),
-    momentum             text NOT NULL,
-    spin_taste_current   text NOT NULL,
-    spin_taste_sink      text NOT NULL,
-    spin_taste_source    text NOT NULL,
-    m_spectator          float NOT NULL,
-    m_heavy              float NOT NULL,
-    m_light              float NOT NULL,
-    m_sink_to_current    float NOT NULL,
+    form_factor_id      SERIAL PRIMARY KEY,
+    ens_id              integer REFERENCES ensemble(ens_id),
+    momentum            text NOT NULL,
+    spin_taste_current  text NOT NULL,
+    spin_taste_sink     text NOT NULL,
+    spin_taste_source   text NOT NULL,
+    m_spectator         float NOT NULL,
+    m_heavy             float NOT NULL,
+    m_light             float NOT NULL,
+    m_sink_to_current   float NOT NULL,
     UNIQUE(ens_id, momentum,
-            spin_taste_current, spin_taste_sink, spin_taste_source,
-            m_spectator, m_heavy, m_light, m_sink_to_current)
+           spin_taste_current, spin_taste_sink, spin_taste_source,
+           m_spectator, m_heavy, m_light, m_sink_to_current)
 );
 
 CREATE TABLE IF NOT EXISTS junction_form_factor
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS external_database
     type     text,
     UNIQUE(ens_id, name)
 );
-    
+
 CREATE TABLE IF NOT EXISTS meta_data_correlator
 (
     meta_correlator_id      SERIAL PRIMARY KEY,
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS alias_quark_mass
     style text NOT NULL default 'default',
     UNIQUE(ens_id, mq, style)
 );
- 
+
 CREATE OR REPLACE VIEW alias_form_factor AS (
     SELECT
         ff.form_factor_id,
@@ -172,7 +172,7 @@ CREATE OR REPLACE VIEW alias_two_point AS (
     JOIN alias_quark_mass alias_h
     ON (alias_h.ens_id = two_point.ens_id) AND (alias_h.mq = two_point.m_heavy)
 );
-    
+
 CREATE TABLE IF NOT EXISTS strong_coupling
 (
     coupling_id SERIAL PRIMARY KEY,
@@ -197,10 +197,10 @@ CREATE TABLE IF NOT EXISTS transition_name
 
 CREATE TABLE IF NOT EXISTS meson_name
 (
-meson_id SERIAL PRIMARY KEY, 
-corr_id integer REFERENCES correlator_n_point(corr_id), 
-name text NOT NULL, 
-log text default '', 
+meson_id SERIAL PRIMARY KEY,
+corr_id integer REFERENCES correlator_n_point(corr_id),
+name text NOT NULL,
+log text default '',
 UNIQUE(corr_id)
 );
 
@@ -222,7 +222,7 @@ spin_taste_current text,
 sign integer,
 UNIQUE(ens_id, spin_taste_current)
 );
-    
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS two_point_materialized AS (
 SELECT
     corr.ens_id,
@@ -398,7 +398,7 @@ CREATE TABLE IF NOT EXISTS result_form_factor_bootstrap (
         tmin_src, tmin_snk, tmax_src, tmax_snk,
         n_decay_src, n_decay_snk, n_oscillating_src, n_oscillating_snk)
 );
-    
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS pion AS
 (
     SELECT ens_id, energy
