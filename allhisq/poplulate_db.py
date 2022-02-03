@@ -124,6 +124,11 @@ def main():
     with sql.connection as conn:
         sql.queries.write_transition_name(conn, transition_names[mask].to_dict(orient='records'))
 
+    # Populate Vi-S form factors
+    with sql.connection as conn:
+        sql.queries.write_Vi_form_factors(conn)
+
+
 # ----- end main ----- ##
 
 ###########################################################

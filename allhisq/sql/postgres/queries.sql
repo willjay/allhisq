@@ -329,3 +329,18 @@ SELECT form_factor_id FROM transition_name;
 -- name: write_transition_name*!
 INSERT INTO transition_name (form_factor_id, mother, daughter, process)
 VALUES (:form_factor_id, :mother, :daughter, :process);
+
+--name: write_Vi_form_factors!
+INSERT INTO form_factor(
+    ens_id, momentum, spin_taste_current,
+    spin_taste_sink, spin_taste_source,
+    m_spectator, m_heavy, m_light, m_sink_to_current
+)
+SELECT
+    ens_id, momentum,
+    'Vi-S' as spin_taste_current,
+    spin_taste_sink, spin_taste_source,
+    m_spectator, m_heavy, m_light, m_sink_to_current
+FROM form_factor
+WHERE (spin_taste_current = 'V1-S')
+ON CONFLICT DO NOTHING;
