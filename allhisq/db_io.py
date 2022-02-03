@@ -13,6 +13,7 @@ import numpy as np
 import sqlalchemy as sqla
 from psycopg2.extensions import register_adapter, AsIs
 import aiosql
+import re
 from . import alias
 from . import hdf5_cache
 from . import db_connection as db
@@ -315,6 +316,57 @@ def get_form_factor_data(form_factor_id, engines, apply_alias=True, sanitize=Tru
             data[key] = hdf5_cache.get_correlator(engines[ens_id], basename)
         except ValueError as err:
             LOGGER.warning("WARNING: Unable to load %s", key)
+    if sanitize:
+        data, nan_rows = sanitize_data(data)
+        if nan_rows:
+            LOGGER.warning("WARNING: NaNs found while sanitizing: %s", nan_rows)
+    return data
+
+
+def get_form_factor_data_elvira(form_factor_id, engines, sanitize=True):
+
+    # Get location of hdf5 file
+    query = """
+        SELECT ext.name, CONCAT(ext.location, '/', ext.name, '.hdf5') AS h5fname
+        FROM form_factor JOIN ensemble USING(ens_id)
+        JOIN external_database as ext USING(ens_id)
+        WHERE form_factor_id = %(form_factor_id)s"""
+    df = pd.read_sql(query, engines['postgres'], params={'form_factor_id': form_factor_id})
+    if not df['name'].item().startswith('egamiz'):
+        raise ValueError("Please use get_form_factor_data(...) instead.")
+    h5fname = df['h5fname'].item()
+
+    # Get the correlator basenames
+    query = """
+        SELECT ens_id, name AS basename, corr_type
+        FROM junction_form_factor AS junction
+        JOIN correlator_n_point USING(corr_id)
+        WHERE (form_factor_id = %(form_factor_id)s)"""
+    query = query.format(form_factor_id=form_factor_id)
+    dataframe = pd.read_sql(query, engines['postgres'], params={'form_factor_id': form_factor_id})
+    basenames = dataframe['basename'].values
+
+    # Apply relevant aliases
+    aliases = {}
+    regex_light_light = re.compile(r"^2pt(pi|K)mom(\d)$")
+    regex_heavy_light = re.compile(r"^2ptD(s?)mom(\d)$")
+    regex_3pt = re.compile(r"^3pt(D|K)(P|K)((m0)?)T(\d\d?)$")
+    for _, row in dataframe.iterrows():
+        basename = row['basename']
+        corr_type = row['corr_type']
+        if (corr_type == 'light-light') or regex_light_light.match(basename):
+            aliases[basename] = 'light-light'
+        elif (corr_type == 'heavy-light') or regex_heavy_light.match(basename):
+            aliases[basename] = 'heavy-light'
+        elif regex_3pt.match(basename):
+            aliases[basename] = int(regex_3pt.match(basename).groups()[-1])
+        else:
+            raise ValueError("Unrecognized basename", basename)
+
+    # Read the data
+    data = {}
+    for basename in basenames:
+        data[aliases[basename]] = hdf5_cache._get_correlator(h5fname, basename)
     if sanitize:
         data, nan_rows = sanitize_data(data)
         if nan_rows:
