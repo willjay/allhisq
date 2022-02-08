@@ -116,7 +116,44 @@ SELECT
     :location,
     'hdf5'
 FROM ensemble
-WHERE ensemble.name = :ens_name;
+WHERE ensemble.name = :ens_name
+ON CONFLICT DO NOTHING;
+;
+
+-- name: write_meta_data_correlator*!
+INSERT INTO meta_data_correlator(
+    ens_id,
+    correlator_key,
+    quark_mass,
+    antiquark_mass,
+    momentum,
+    has_sequential)
+SELECT
+    ens_id,
+    :corr_name,
+    :quark_mass,
+    :antiquark_mass,
+    :momentum,
+    :has_sequential
+FROM ensemble WHERE ensemble.name = :ens_name
+ON CONFLICT DO NOTHING;
+
+--name: write_strong_coupling*!
+INSERT INTO strong_coupling(
+    lattice_spacing_id,
+    coupling_name,
+    coupling_scale,
+    coupling_value)
+SELECT
+    lattice_spacing.id,
+    'alphaV',
+    '2/a',
+    :coupling_value
+FROM    ensemble
+JOIN    lattice_spacing USING(ens_id)
+WHERE   (lattice_spacing.type = 'nominal')
+        AND (ensemble.name = :ens_name)
+ON CONFLICT DO NOTHING;
 
 
 

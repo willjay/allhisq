@@ -230,6 +230,103 @@ def main():
         with sql.connection as conn:
             sql.queries.write_junction_form_factor(conn, payload.to_dict(orient='records'))
 
+    ##############################
+    # Write meta_data_correlator #
+    ##############################
+
+    meta_data_correlator = pd.DataFrame([
+        ["egamiz:l64192f211b700m00316m0158m188", "2ptDmom0", 0.1827, 0.00311, 'p000', False],
+        ["egamiz:l64192f211b700m00316m0158m188", "2ptDsmom0", 0.1827, 0.01555, 'p000', False],
+        ["egamiz:l64192f211b700m00316m0158m188", "2ptKmom0", 0.01555, 0.00311, 'p000', False],
+        ["egamiz:l64192f211b700m00316m0158m188", "2ptKmom2", 0.01555, 0.00311, 'q2=0', False],
+        ["egamiz:l64192f211b700m00316m0158m188", "2ptpimom0", 0.00311, 0.00311, 'p000', False],
+        ["egamiz:l64192f211b700m00316m0158m188", "2ptpimom1", 0.00311, 0.00311, 'unknown', False],
+        ["egamiz:l64192f211b700m00316m0158m188", "2ptpimom2", 0.00311, 0.00311, 'q2=0', False],
+        ["egamiz:l96192f211b672m0008m022m260", "2ptDmom0", 0.26, 0.00077, 'p000', False],
+        ["egamiz:l96192f211b672m0008m022m260", "2ptDsmom0", 0.26, 0.022, 'p000', False],
+        ["egamiz:l96192f211b672m0008m022m260", "2ptKmom0", 0.022, 0.00077, 'p000', False],
+        ["egamiz:l96192f211b672m0008m022m260", "2ptKmom2", 0.022, 0.00077, 'q2=0', False],
+        ["egamiz:l96192f211b672m0008m022m260", "2ptpimom0", 0.00077, 0.00077, 'p000', False],
+        ["egamiz:l96192f211b672m0008m022m260", "2ptpimom1", 0.00077, 0.00077, 'unknown', False],
+        ["egamiz:l96192f211b672m0008m022m260", "2ptpimom2", 0.00077, 0.00077, 'q2=0', False],
+        ["egamiz:l48144f211b672m0048m024m286", "2ptDmom0", 0.286, 0.0048, 'p000', False],
+        ["egamiz:l48144f211b672m0048m024m286", "2ptKmom0", 0.024, 0.0048, 'p000', False],
+        ["egamiz:l48144f211b672m0048m024m286", "2ptKmom2", 0.024, 0.0048, 'q2=0', False],
+        ["egamiz:l48144f211b672m0048m024m286", "2ptpimom0", 0.0048, 0.0048, 'p000', False],
+        ["egamiz:l48144f211b672m0048m024m286", "2ptpimom2", 0.0048, 0.0048, 'q2=0', False],
+        ["egamiz:l6496f211b630m0012m0363m432", "2ptDmom0", 0.432, 0.0012705, 'p000', False],
+        ["egamiz:l6496f211b630m0012m0363m432", "2ptKmom0", 0.0363, 0.0012705, 'p000', False],
+        ["egamiz:l6496f211b630m0012m0363m432", "2ptKmom2", 0.0363, 0.0012705, 'q2=0', False],
+        ["egamiz:l6496f211b630m0012m0363m432", "2ptpimom0", 0.0012705, 0.0012705, 'p000', False],
+        ["egamiz:l6496f211b630m0012m0363m432", "2ptpimom1", 0.0012705, 0.0012705, 'unknown', False],
+        ["egamiz:l6496f211b630m0012m0363m432", "2ptpimom2", 0.0012705, 0.0012705, 'q2=0', False],
+        ["egamiz:l4896f211b630m00363m0363m430", "2ptDmom0", 0.43, 0.0038, 'p000', False],
+        ["egamiz:l4896f211b630m00363m0363m430", "2ptKmom0", 0.038, 0.0038, 'p000', False],
+        ["egamiz:l4896f211b630m00363m0363m430", "2ptKmom2", 0.038, 0.0038, 'q2=0', False],
+        ["egamiz:l4896f211b630m00363m0363m430", "2ptpimom0", 0.0038, 0.0038, 'p000', False],
+        ["egamiz:l4896f211b630m00363m0363m430", "2ptpimom2", 0.0038, 0.0038, 'q2=0', False],
+        ["egamiz:l3296f211b630m0074m037m440", "2ptDmom0", 0.44, 0.0076, 'p000', False],
+        ["egamiz:l3296f211b630m0074m037m440", "2ptKmom0", 0.038, 0.0076, 'p000', False],
+        ["egamiz:l3296f211b630m0074m037m440", "2ptKmom1", 0.038, 0.0076, 'unknown', False],
+        ["egamiz:l3296f211b630m0074m037m440", "2ptKmom2", 0.038, 0.0076, 'q2=0', False],
+        ["egamiz:l3296f211b630m0074m037m440", "2ptpimom0", 0.0076, 0.0076, 'p000', False],
+        ["egamiz:l3296f211b630m0074m037m440", "2ptpimom1", 0.0076, 0.0076, 'unknown', False],
+        ["egamiz:l3296f211b630m0074m037m440", "2ptpimom2", 0.0076, 0.0076, 'q2=0', False],
+        ["egamiz:l4864f211b600m00184m0507m628", "2ptDmom0", 0.6269, 0.0018585, 'p000', False],
+        ["egamiz:l4864f211b600m00184m0507m628", "2ptKmom0", 0.0531, 0.0018585, 'p000', False],
+        ["egamiz:l4864f211b600m00184m0507m628", "2ptKmom2", 0.0531, 0.0018585, 'q2=0', False],
+        ["egamiz:l4864f211b600m00184m0507m628", "2ptpimom0", 0.0018585, 0.0018585, 'p000', False],
+        ["egamiz:l4864f211b600m00184m0507m628", "2ptpimom2", 0.0018585, 0.0018585, 'q2=0', False],
+        ["egamiz:l3264f211b600m00507m0507m628", "2ptDmom0", 0.650, 0.0053, 'p000', False],
+        ["egamiz:l3264f211b600m00507m0507m628", "2ptKmom0", 0.053, 0.0053, 'p000', False],
+        ["egamiz:l3264f211b600m00507m0507m628", "2ptKmom1", 0.053, 0.0053, 'unknown', False],
+        ["egamiz:l3264f211b600m00507m0507m628", "2ptKmom2", 0.053, 0.0053, 'q2=0', False],
+        ["egamiz:l3264f211b600m00507m0507m628", "2ptpimom0", 0.0053, 0.0053, 'p000', False],
+        ["egamiz:l3264f211b600m00507m0507m628", "2ptpimom2", 0.0053, 0.0053, 'q2=0', False],
+        ["egamiz:l2464f211b600m00507m0507m628", "2ptDmom0", 0.650, 0.0053, 'p000', False],
+        ["egamiz:l2464f211b600m00507m0507m628", "2ptKmom0", 0.053, 0.0053, 'p000', False],
+        ["egamiz:l2464f211b600m00507m0507m628", "2ptKmom2", 0.053, 0.0053, 'q2=0', False],
+        ["egamiz:l2464f211b600m00507m0507m628", "2ptpimom0", 0.0053, 0.0053, 'p000', False],
+        ["egamiz:l2464f211b600m00507m0507m628", "2ptpimom1", 0.0053, 0.0053, 'unknown', False],
+        ["egamiz:l2464f211b600m00507m0507m628", "2ptpimom2", 0.0053, 0.0053, 'q2=0', False],
+        ["egamiz:l4064f211b600m00507m0507m628", "2ptDmom0", 0.650, 0.0053, 'p000', False],
+        ["egamiz:l4064f211b600m00507m0507m628", "2ptKmom0", 0.053, 0.0053, 'p000', False],
+        ["egamiz:l4064f211b600m00507m0507m628", "2ptKmom2", 0.053, 0.0053, 'q2=0', False],
+        ["egamiz:l4064f211b600m00507m0507m628", "2ptpimom0", 0.0053, 0.0053, 'p000', False],
+        ["egamiz:l4064f211b600m00507m0507m628", "2ptpimom1", 0.0053, 0.0053, 'unknown', False],
+        ["egamiz:l4064f211b600m00507m0507m628", "2ptpimom2", 0.0053, 0.0053, 'q2=0', False],
+        ["egamiz:l2464f211b600m0102m0509m635", "2ptDmom0", 0.6363, 0.0107, 'p000', False],
+        ["egamiz:l2464f211b600m0102m0509m635", "2ptKmom0", 0.0535, 0.0107, 'p000', False],
+        ["egamiz:l2464f211b600m0102m0509m635", "2ptKmom1", 0.0535, 0.0107, 'unknown', False],
+        ["egamiz:l2464f211b600m0102m0509m635", "2ptKmom2", 0.0535, 0.0107, 'q2=0', False],
+        ["egamiz:l2464f211b600m0102m0509m635", "2ptpimom0", 0.0107, 0.0107, 'p000', False],
+        ["egamiz:l2464f211b600m0102m0509m635", "2ptpimom1", 0.0107, 0.0107, 'unknown', False],
+        ["egamiz:l2464f211b600m0102m0509m635", "2ptpimom2", 0.0107, 0.0107, 'q2=0', False],],
+        columns=['ens_name', 'corr_name', 'quark_mass', 'antiquark_mass', 'momentum', 'has_sequential']
+    )
+
+    with sql.connection as conn:
+        records = meta_data_correlator.to_dict(orient='records')
+        sql.queries.write_meta_data_correlator(conn, records)
+
+    alpha = pd.DataFrame([
+        ["egamiz:l64192f211b700m00316m0158m188",'0.205(1)'],    # 0.042 fm
+        ["egamiz:l96192f211b672m0008m022m260",  '0.2235(30)'],  # 0.057 fm
+        ["egamiz:l48144f211b672m0048m024m286",  '0.2235(30)'],  # 0.057 fm
+        ["egamiz:l6496f211b630m0012m0363m432",  '0.2641(43)'],  # 0.088 fm
+        ["egamiz:l4896f211b630m00363m0363m430", '0.2641(43)'],  # 0.088 fm
+        ["egamiz:l3296f211b630m0074m037m440",   '0.2641(43)'],  # 0.088 fm
+        ["egamiz:l4864f211b600m00184m0507m628", '0.3068(61)'],  # 0.12 fm
+        ["egamiz:l3264f211b600m00507m0507m628", '0.3068(61)'],  # 0.12 fm
+        ["egamiz:l2464f211b600m00507m0507m628", '0.3068(61)'],  # 0.12 fm
+        ["egamiz:l4064f211b600m00507m0507m628", '0.3068(61)'],  # 0.12 fm
+        ["egamiz:l2464f211b600m0102m0509m635",  '0.3068(61)'],],# 0.12 fm
+        columns=['ens_name', 'coupling_value']
+    )
+    with sql.connection as conn:
+        records = alpha.to_dict(orient='records')
+        sql.queries.write_strong_coupling(conn, records)
+
     ########################
     # Convert data to HDF5 #
     ########################
