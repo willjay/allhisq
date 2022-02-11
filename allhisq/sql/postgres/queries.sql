@@ -344,3 +344,48 @@ SELECT
 FROM form_factor
 WHERE (spin_taste_current = 'V1-S')
 ON CONFLICT DO NOTHING;
+
+--name: write_campaign_results_two_point!
+--Implementation note:
+--Uses (ens_id, basename) to grab matching corr_id and "meta" information.
+INSERT INTO campaign_results_two_point(
+        -- ids
+        ens_id, corr_id,
+        -- meta information
+        a_fm, basename, momentum, m_heavy, m_light, alias_heavy, alias_light,
+        -- analysis inputs
+        n_decay, n_oscillating, tmin, tmax,
+        -- priors
+        prior,
+        -- posteriors
+        params, energy, amp,
+        -- statistics
+        q_value, p_value, chi2_aug, chi2, chi2_per_dof, dof,
+        nparams, npoints, aic, model_probability, calcdate
+)
+SELECT
+        -- ids
+        :ens_id, corr_id,
+        -- meta information
+        :a_fm, :basename, momentum, m_heavy, m_light, alias_heavy, alias_light,
+        -- analysis inputs
+        :n_decay, :n_oscillating, :tmin, :tmax,
+        -- priors
+        :prior,
+        -- posteriors
+        :params, :energy, :amp,
+        -- statistics
+        :q_value, :p_value, :chi2_aug, :chi2, :chi2_per_dof, :dof,
+        :nparams, :npoints, :aic, :model_probability, :calcdate
+FROM    two_point_materialized
+JOIN    alias_two_point USING(corr_id)
+JOIN    lattice_spacing USING(ens_id)
+WHERE   (two_point_materialized.ens_id = :ens_id)
+        AND (two_point_materialized.name ~ :basename)
+        AND (two_point_materialized.name !~ 'loose$')
+ON CONFLICT DO NOTHING;
+
+--name: get_hdf5$
+SELECT CONCAT(location, '/', name, '.hdf5') AS h5fname
+FROM   external_database
+WHERE  ens_id = :ens_id;
