@@ -106,8 +106,12 @@ def is_source(corr2, corr3):
     mass_triplet = corr3['mass_triplet']
     mass_agrees = (corr2['masses'] == set((mass_triplet.src, mass_triplet.spec)))
     momentum_agrees = (corr2['momentum'] == corr3['momentum'])
-    
-    return operator_agrees and mass_agrees and momentum_agrees
+    # Kludge
+    kludge = corr2['basename'].startswith('P5-P5')
+    # TODO: Verify general validity
+    # The idea is that the 3pt functions have a prefix which specifies the *sink* operator only.
+    # Thus, we shouldn't (?? verify this!) have to / be able to match the operators for the source.
+    return mass_agrees and momentum_agrees and kludge
 
 
 def all_equal(iterator):
@@ -223,7 +227,7 @@ class MesonNames(object):
                         '3.0', '4.0', '4.2']
         charm_quarks = ['{0} m_charm'.format(rat) for rat in charm_ratios[:5]]
         bottom_quarks = ['{0} m_charm'.format(rat) for rat in charm_ratios[5:]]
-        
+
         # Build up a dictionary of states (m1, m2) : state
         states = {}
         for light in light_quarks:

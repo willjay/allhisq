@@ -3,7 +3,7 @@ from contextlib import contextmanager
 import pandas as pd
 import sqlalchemy as sqla
 from sqlalchemy.orm import Session
-#from . import db_settings
+from . import db_settings
 
 def get_engines():
     """
@@ -38,7 +38,7 @@ def get_engines():
         db_name  = os.path.join(location,name+'.sqlite')
 
         if (db_type != 'sqlite'):
-            raise ValueError("Expected sqlite databse")
+            pass
 
         engines[ens_id] = make_engine(db_choice=db_name, sqlite=True)
 

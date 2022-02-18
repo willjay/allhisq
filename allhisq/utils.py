@@ -25,13 +25,13 @@ def timing(fcn):
     return wrap
 
 
-def bundle_mask(dataframe, adict):
+def bundle_mask(dataframe, **kwargs):
     """
     Bundles together several boolean masks using the "bitwise AND" operator to match several column-
     value pairs.
     Args:
         dataframe: pandas.DataFrame
-        adict: dict specifying the masks
+        kwargs: keyword arguments specifying the mask
     Returns:
         mask: boolean mask for the dataframe
     Examples:
@@ -49,7 +49,7 @@ def bundle_mask(dataframe, adict):
     0      a       1  foo
     """
     return functools.reduce(lambda a, b: a&b,
-                  [dataframe[key] == value for key, value in adict.items()])
+                  [dataframe[key] == value for key, value in kwargs.items()])
 
 
 def extract_unique(dataframe, column):

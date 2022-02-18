@@ -6,12 +6,14 @@ import os
 import pathlib
 import collections
 import ast
+from functools import reduce
 import pandas as pd
 import gvar as gv
 import numpy as np
 import sqlalchemy as sqla
 from psycopg2.extensions import register_adapter, AsIs
 import aiosql
+import re
 from . import alias
 from . import hdf5_cache
 from . import db_connection as db
@@ -194,6 +196,13 @@ def sanitize_data(data):
         data: dict, with array-like values with all rows containing NaNs removed
         nan_configs: set, the rows numbers where NaNs were encountered
     """
+    # Make sure the same number of configurations appear everywhere
+    nconfigs = np.inf
+    for datum in data.values():
+        nconfigs = min(nconfigs, datum.shape[0])
+    for key, datum in data.items():
+        data[key] = datum[:nconfigs, :]
+
     # Locate rows with NaNs
     nan_rows = {locate_nan_rows(data[key]) for key in data}
 
@@ -202,18 +211,24 @@ def sanitize_data(data):
         return data, nan_rows
 
     # Multiple distinct sets of rows with NaNs encountered
+    use_nans = False
     if len(nan_rows) > 1:
-        raise ValueError("Unable to sanitize data consistenly removing NaNs.")
+        LOGGER.warning("Found NaNs in different rows; taking the union of all such rows.")
+        use_nans = True
+        nan_rows = [reduce(lambda a, b: a | b, nan_rows), ]
 
     # Remove the NaNs
     keys = list(data.keys())
     for key in keys:
-        data[key] = remove_nans(data.pop(key))
+        if use_nans:
+            data[key] = remove_nans(data.pop(key), nan_rows[0])
+        else:
+            data[key] = remove_nans(data.pop(key))
 
     # Verify that resulting data are consistenly shaped
     distinct_shapes = {val.shape for val in data.values()}
     if len(distinct_shapes) != 1:
-        raise ValueError("Removing NaNs produced inconsistenly shaped data.")
+        raise ValueError("Removing NaNs produced inconsistenly shaped data.", distinct_shapes)
 
     nan_rows, = nan_rows
     return data, nan_rows
@@ -228,11 +243,14 @@ def locate_nan_rows(arr):
     return frozenset(nans)
 
 
-def remove_nans(arr):
+def remove_nans(arr, nan_rows=None):
     """Removes NaNs from an array."""
     # Remove NaNs
-    _, nt = arr.shape
-    mask = np.isfinite(arr)
+    nconfigs, nt = arr.shape
+    if nan_rows is None:
+        mask = np.isfinite(arr)
+    else:
+        mask = np.array([n for n in np.arange(nconfigs) if n not in nan_rows])
     return arr[mask].reshape(-1, nt)
 
 
@@ -294,7 +312,61 @@ def get_form_factor_data(form_factor_id, engines, apply_alias=True, sanitize=Tru
     data = {}
     for basename in aliases:
         key = name_map[basename] if apply_alias else basename
-        data[key] = hdf5_cache.get_correlator(engines[ens_id], basename)
+        try:
+            data[key] = hdf5_cache.get_correlator(engines[ens_id], basename)
+        except ValueError as err:
+            LOGGER.warning("WARNING: Unable to load %s", key)
+    if sanitize:
+        data, nan_rows = sanitize_data(data)
+        if nan_rows:
+            LOGGER.warning("WARNING: NaNs found while sanitizing: %s", nan_rows)
+    return data
+
+
+def get_form_factor_data_elvira(form_factor_id, engines, sanitize=True):
+
+    # Get location of hdf5 file
+    query = """
+        SELECT ext.name, CONCAT(ext.location, '/', ext.name, '.hdf5') AS h5fname
+        FROM form_factor JOIN ensemble USING(ens_id)
+        JOIN external_database as ext USING(ens_id)
+        WHERE form_factor_id = %(form_factor_id)s"""
+    df = pd.read_sql(query, engines['postgres'], params={'form_factor_id': form_factor_id})
+    if not df['name'].item().startswith('egamiz'):
+        raise ValueError("Please use get_form_factor_data(...) instead.")
+    h5fname = df['h5fname'].item()
+
+    # Get the correlator basenames
+    query = """
+        SELECT ens_id, name AS basename, corr_type
+        FROM junction_form_factor AS junction
+        JOIN correlator_n_point USING(corr_id)
+        WHERE (form_factor_id = %(form_factor_id)s)"""
+    query = query.format(form_factor_id=form_factor_id)
+    dataframe = pd.read_sql(query, engines['postgres'], params={'form_factor_id': form_factor_id})
+    basenames = dataframe['basename'].values
+
+    # Apply relevant aliases
+    aliases = {}
+    regex_light_light = re.compile(r"^2pt(pi|K)mom(\d)$")
+    regex_heavy_light = re.compile(r"^2ptD(s?)mom(\d)$")
+    regex_3pt = re.compile(r"^3pt(D|K)(P|K)((m0)?)T(\d\d?)$")
+    for _, row in dataframe.iterrows():
+        basename = row['basename']
+        corr_type = row['corr_type']
+        if (corr_type == 'light-light') or regex_light_light.match(basename):
+            aliases[basename] = 'light-light'
+        elif (corr_type == 'heavy-light') or regex_heavy_light.match(basename):
+            aliases[basename] = 'heavy-light'
+        elif regex_3pt.match(basename):
+            aliases[basename] = int(regex_3pt.match(basename).groups()[-1])
+        else:
+            raise ValueError("Unrecognized basename", basename)
+
+    # Read the data
+    data = {}
+    for basename in basenames:
+        data[aliases[basename]] = hdf5_cache._get_correlator(h5fname, basename)
     if sanitize:
         data, nan_rows = sanitize_data(data)
         if nan_rows:
@@ -414,8 +486,7 @@ def upsert(engine, table_name, dataframe):
     records = []
     for _, row in dataframe.iterrows():
         # Edge case: serial primary keys, e.g., may not be in the row yet
-        records.append({col.name: row[col.name]
-                        for col in table.columns if col.name in row})
+        records.append({col.name: row[col.name] for col in table.columns if col.name in row})
 
     # get list of fields making up primary key
     primary_keys = [
@@ -432,10 +503,7 @@ def upsert(engine, table_name, dataframe):
     # Edge case: all columns make up a primary key
     # Then upsert <--> 'on conflict do nothing'
     if update_dict == {}:
-        LOGGER.warning(
-            'No updateable columns found for table %s. Skipping upsert.',
-            table_name
-        )
+        LOGGER.warning('No updateable columns found for table %s. Skipping upsert.', table_name)
         # Still want to upsert without error.
         # TODO: implement insert_ignore()
         # insert_ignore(table_name, records)
@@ -746,7 +814,7 @@ def fetch_basenames(engine, form_factor):
     queries = aiosql.from_path(abspath("sql/"), "sqlite3")
     with db.connection_scope(engine) as conn:
         corrs = queries.get_correlator_names(conn, **params)
-    
+
     return np.squeeze(np.array(corrs))
 
 
@@ -796,7 +864,7 @@ def get_mq(a_fm, description, quark_alias):
         float, the bare quark mass
     """
     quark = conventions.quark_masses
-    mask = utils.bundle_mask(quark, {'a_fm':a_fm, 'description':description, 'alias': quark_alias})
+    mask = utils.bundle_mask(quark, a_fm=a_fm, description=description, alias=quark_alias)
     return utils.extract_unique(quark[mask], 'mq')
 
 
@@ -811,7 +879,7 @@ def get_alias(a_fm, description, quark_mass):
         str, the alias for the quark mass
     """
     quark = conventions.quark_masses
-    mask = utils.bundle_mask(quark, {'a_fm': a_fm, 'description': description, 'mq': quark_mass})
+    mask = utils.bundle_mask(quark, a_fm=a_fm, description=description, mq=quark_mass)
     return utils.extract_unique(quark[mask], 'alias')
 
 
@@ -825,5 +893,5 @@ def get_ensemble(a_fm, description):
         str, the ensemble name
     """
     ens = conventions.ensembles
-    mask = utils.bundle_mask(ens, {'a_fm': a_fm, 'description': description})
+    mask = utils.bundle_mask(ens, a_fm=a_fm, description=description)
     return utils.extract_unique(ens[mask], 'name')
