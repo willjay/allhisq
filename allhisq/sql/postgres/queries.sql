@@ -389,3 +389,22 @@ ON CONFLICT DO NOTHING;
 SELECT CONCAT(location, '/', name, '.hdf5') AS h5fname
 FROM   external_database
 WHERE  ens_id = :ens_id;
+
+--name: get_lattice_spacing_id
+SELECT  a_fm,
+        lattice_spacing.id AS lattice_spacing_id
+FROM    lattice_spacing;
+
+--name: write_strong_coupling*!
+INSERT INTO strong_coupling(
+        coupling_name,
+        coupling_scale,
+        coupling_value,
+        lattice_spacing_id,
+        log)
+VALUES  (:coupling_name,
+        :coupling_scale,
+        :coupling_value,
+        :lattice_spacing_id,
+        :log)
+ON CONFLICT DO NOTHING;

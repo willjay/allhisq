@@ -181,3 +181,12 @@ states = pd.DataFrame([
     ["1.0 m_strange", "4.2 m_charm", "bs"],
     ["1.0 m_strange", "4.4 m_charm", "bs"],],
     columns=['alias_light', 'alias_heavy', 'state'])
+
+strong_coupling = pd.DataFrame([
+    ['alphaV', '2/a', '0.3478(81)', 'Zech private communication',  0.15, 'nominal'],
+    ['alphaV', '2/a', '0.3068(61)', 'Zech private communication',  0.12, 'nominal'],
+    ['alphaV', '2/a', '0.2641(43)', 'Zech private communication', 0.088, 'nominal'],
+    ['alphaV', '2/a', '0.2641(43)', 'Zech private communication', 0.088, 'nominal'],
+    ['alphaV', '2/a', '0.2235(30)', 'Zech private communication', 0.057, 'nominal'],
+    ['alphaV', '2/a', '0.205(1)',   'WJ linear extrapolation',    0.042, 'nominal']],
+    columns=['coupling_name', 'coupling_scale', 'coupling_value', 'log', 'a_fm', 'type'])
