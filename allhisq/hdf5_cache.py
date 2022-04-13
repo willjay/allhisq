@@ -403,7 +403,7 @@ class ReductionInterface(object):
                 with h5py.File(self.h5fname, mode='a') as ofile:
                     if data.empty:
                         print("Empty data frame at", idx)
-                        continue 
+                        continue
                     write_hdf5(ofile, data)
                     ofile.flush()
                     ofile.close()
@@ -467,7 +467,10 @@ class CachedData(np.ndarray):
 def _get_correlator(h5fname, basename):
     "Gets a correlator (basename) from the cache (h5fname)."
     with h5py.File(h5fname, 'r') as ifile:
-        dset = ifile['data'][basename]
+        if 'data' in ifile:
+            dset = ifile['data'][basename]
+        else:
+            dset = ifile[basename]
         arr = CachedData(dset)
     return arr
 
@@ -485,12 +488,12 @@ def get_correlator(engine, basename):
     if basename.endswith('loose') or basename.endswith('fine'):
         raise ValueError(
             "'basename' cannot end with the suffixes 'loose' or 'fine'.")
-    if (not cache_exists(engine)) or (not basename_cached(engine, basename)):
-        # Process a missing correlator into the cache
-        LOGGER.error('missing correlator %s', basename)
-        input_db = engine.url.database
-        interface = ReductionInterface(input_db, h5fname)
-        interface.process_data(basename=basename)
+    # if (not cache_exists(engine)) or (not basename_cached(engine, basename)):
+    #     # Process a missing correlator into the cache
+    #     LOGGER.error('missing correlator %s', basename)
+    #     input_db = engine.url.database
+    #     interface = ReductionInterface(input_db, h5fname)
+    #     interface.process_data(basename=basename)
     # Grab the correlator from the cache
     return _get_correlator(h5fname, basename)
 
