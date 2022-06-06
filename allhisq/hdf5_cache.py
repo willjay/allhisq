@@ -488,13 +488,6 @@ def get_correlator(engine, basename):
     if basename.endswith('loose') or basename.endswith('fine'):
         raise ValueError(
             "'basename' cannot end with the suffixes 'loose' or 'fine'.")
-    # if (not cache_exists(engine)) or (not basename_cached(engine, basename)):
-    #     # Process a missing correlator into the cache
-    #     LOGGER.error('missing correlator %s', basename)
-    #     input_db = engine.url.database
-    #     interface = ReductionInterface(input_db, h5fname)
-    #     interface.process_data(basename=basename)
-    # Grab the correlator from the cache
     return _get_correlator(h5fname, basename)
 
 @utils.timing
