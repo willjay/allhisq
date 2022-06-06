@@ -490,6 +490,52 @@ def get_correlator(engine, basename):
             "'basename' cannot end with the suffixes 'loose' or 'fine'.")
     return _get_correlator(h5fname, basename)
 
+def zipper(arr):
+    """
+    Zips the series and trajectory attributes of a CachedData object.
+    """
+    return zip(arr.attrs['series'], arr.attrs['trajectory'])
+
+def find_unique_common(adict):
+    """
+    Finds unique (series, trajectory) pairs common to all keys in a dictionary
+    of correlator data. Assumes that all values have the structure of CachedData
+    object for accessing the (series, trajectory) values.
+    Note: the unique common pairs form the intersection of the sets of pairs.
+    Args:
+        adict: dict with CachedData for values
+    Returns:
+        set of (series, trajectory tuples)
+    """
+    pairs = [[tuple(pair) for pair in zipper(arr)] for arr in adict.values()]
+    return set.intersection(*[set(alist) for alist in pairs])
+
+def restrict(adict, keep):
+    """
+    Restricts a dictionary of CachedData objects to the specified values of
+    (series, trajectory).
+    Args:
+        adict: dict with CachedData for values
+        keep: iterable of (series, trajectory) tuples
+    Returns:
+        dict, the CachedData restricted to desired (series, trajectory) values
+
+    Note: the typical intended usage of this function is along the lines of:
+    >>> from allhisq import hdf5_cache as hdf5
+    >>> basenames = [<some list of correlator basenames>]
+    >>> engine = <some connection engine object specifiying the HDF5 file>
+    >>> adict = {}
+    >>> for basename in basesname:
+    >>>    adict[basename] = hdf5.get_correlator(engine, basename)
+    >>> adict = hdf5.restrict(adict, hdf5.find_unique_common(adict))
+    """
+    result = {}
+    for key in adict.keys():
+        arr = adict[key]
+        mask = np.array([tuple(pair) in keep for pair in zipper(arr)])
+        result[key] = arr[mask]
+    return result
+
 @utils.timing
 def get_pre_tsm_raw_data(basename, engine):
     """
