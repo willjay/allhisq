@@ -803,6 +803,8 @@ def fetch_basenames(engine, form_factor):
     # 2pt correlators like 'P5-P5_RW_RW_d_d_m0.002426_m0.002426_p000'
     mother = "%_RW_RW_d_d_m{m_mother}_m{m_spectator}_p000%fine"
     daughter = "%_RW_RW_d_d_m{m_daughter}_m{m_spectator}_{momentum}%fine"
+    if form_factor['m_daughter'] < form_factor['m_spectator']:
+        daughter = "%_RW_RW_d_d_m{m_spectator}_m{m_daughter}_{momentum}%fine"
 
     # 3pt correlators like 'P5-P5_RW_RW_d_d_m0.002426_m0.002426_p000',
     corr3 = "%_{current}_T%_m{m_mother}_RW_RW_x_d_m{m_spectator}_m{m_daughter}_{momentum}%fine"
@@ -813,8 +815,8 @@ def fetch_basenames(engine, form_factor):
         'corr3': corr3.format(**form_factor)}
     queries = aiosql.from_path(abspath("sql/"), "sqlite3")
     with db.connection_scope(engine) as conn:
-        corrs = queries.get_correlator_names(conn, **params)
-
+        corrs = queries.postgres.get_correlator_names(conn, **params)
+    
     return np.squeeze(np.array(corrs))
 
 
