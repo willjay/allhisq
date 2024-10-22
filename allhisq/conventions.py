@@ -105,6 +105,7 @@ quark_masses = pd.DataFrame([
     [0.042, '1/5', 0.01555, '1.0 m_strange'],
     [0.042, '1/5', 0.00311, '0.2 m_strange'],
     # 1/27 ms "physical-mass"
+    [0.042, '1/27', 0.843, '1.0 m_b'],
     [0.042, '1/27', 0.767, '4.2 m_charm'],
     [0.042, '1/27', 0.731, '4.0 m_charm'],
     [0.042, '1/27', 0.548, '3.0 m_charm'],
@@ -136,6 +137,7 @@ ensembles = pd.DataFrame([
     [0.057, '1/10', 64, 144, 'l64144f211b672m0024m024m286-allHISQ'],
     [0.057, '1/5', 48, 144, 'l48144f211b672m0048m024m286-allHISQ'],
     [0.042, '1/5', 64, 192, 'l64192f211b700m00316m0158m188-allHISQ'],
+    [0.042, '1/27', 144, 288, 'l144288f211b700m000569m01555m1827-allHISQ'],
     [0.03,  '1/5', 96, 288, 'l96288f211b728m00223m01115m1316-allHISQ'], 
     ],
     columns=['a_fm', 'description', 'ns', 'nt', 'name'])
@@ -203,5 +205,6 @@ strong_coupling = pd.DataFrame([
     ['alphaV', '2/a', '0.2641(43)', 'Zech private communication', 0.088, 'nominal'],
     ['alphaV', '2/a', '0.2641(43)', 'Zech private communication', 0.088, 'nominal'],
     ['alphaV', '2/a', '0.2235(30)', 'Zech private communication', 0.057, 'nominal'],
-    ['alphaV', '2/a', '0.205(1)',   'WJ linear extrapolation',    0.042, 'nominal']],
+    ['alphaV', '2/a', '0.205(1)',   'WJ linear extrapolation',    0.042, 'nominal'],
+    ['alphaV', '2/a', '0.188(2)',   'AL linear extrapolation',    0.03, 'nominal']],
     columns=['coupling_name', 'coupling_scale', 'coupling_value', 'log', 'a_fm', 'type'])
