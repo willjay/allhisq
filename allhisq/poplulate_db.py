@@ -174,7 +174,7 @@ def parse_db_name(db_full_path):
     if not match:
         # try again with for alternative file structure include 'redo'
         regex = re.compile(
-            r'^(l\d+)(f\d+)(b\d+)(m\d+)(m\d+)(m\d+)\-(allHISQ)\-(fix|build|redo|run\d+)\.(sqlite)$')
+            r'^(l\d+)(f\d+)(b\d+)(m\d+)(m\d+)(m\d+)\-(allHISQ)\-(fix|building|redo|run\d+)\.(sqlite)$')
         match = re.search(regex, name)
         suffix_idx = 9
         if not match:
@@ -372,6 +372,8 @@ def infer_transition_names(aliases):
     light_quarks = ['1.0 m_light', '0.1 m_strange', '0.2 m_strange']
     heavy_ratios = ['0.9', '1.0', '1.1', '1.4', '1.5', '2.0', '2.2', '2.5', '3.0', '3.3', '4.0', '4.2', '4.4']
     heavy_quarks = ['{0} m_charm'.format(rat) for rat in heavy_ratios]
+    heavy_quarks += ['1.0 m_b']
+    #print(f"{heavy_quarks = }")
 
     # Build up a dictionary of states (m1,m2) : state
     states = {}
