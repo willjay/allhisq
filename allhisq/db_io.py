@@ -28,18 +28,18 @@ LOGGER = logging.getLogger(__name__)
 # Previously it just worked...
 
 
-def adapt_numpy_int64(numpy_int64):
+def adapt_numpy_dtype(numpy_dtype):
     """
     Adapting numpy.int64 type to SQL-conform int type using psycopg extension,
     see [1]_ for more info.
     References:
     http://initd.org/psycopg/docs/advanced.html#adapting-new-python-types-to-sql-syntax
+    https://www.psycopg.org/docs/extensions.html  (AsIs)
     """
-    return AsIs(numpy_int64)
+    return AsIs(numpy_dtype)
 
-
-register_adapter(np.int64, adapt_numpy_int64)
-
+register_adapter(np.int64, adapt_numpy_dtype)
+register_adapter(np.float64, adapt_numpy_dtype)
 
 def reshape_params(params, nstates):
     """
